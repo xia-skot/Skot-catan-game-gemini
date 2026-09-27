@@ -5,84 +5,64 @@ interface Props extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
 }
 
-export function RotatedScroll({ shouldApplyPortraitRotation, children, className, ...rest }: Props) {
+export function RotatedScroll({ shouldApplyPortraitRotation, children, className, style, ...rest }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const el = ref.current;
     if (!el || !shouldApplyPortraitRotation) return;
-
-    let startX = 0;
-    let startY = 0;
-    let scrollTopStart = 0;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      scrollTopStart = el.scrollTop;
+    let touch: { x: number; y: number; time: number; moved: boolean } | null = null;
+    let velocity = 0, frame = 0, suppressUntil = 0;
+    const stop = () => { cancelAnimationFrame(frame); velocity = 0; touch = null; };
+    const start = (event: TouchEvent) => {
+      stop();
+      if (event.touches.length !== 1 || (event.target as Element).closest('input,textarea,[role="slider"]')) return;
+      const point = event.touches[0];
+      touch = { x: point.clientX, y: point.clientY, time: performance.now(), moved: false };
     };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      // In rotated space (90deg clockwise), physical UP (decreasing clientY) 
-      // is actually logical LEFT.
-      // Physical RIGHT (increasing clientX) is actually logical UP.
-      // Wait, let's re-verify the axes:
-      // Phone is portrait. Screen width W.
-      // App rotated 90deg clockwise around top-left, then moved to right edge (left: W).
-      // Screen (px, py) -> App (py, W - px).
-      // So a change in px (delta px) -> change in App Y (delta ay = - delta px)
-      // A change in py (delta py) -> change in App X (delta ax = delta py)
-      // For vertical scrolling in the app, we care about delta App Y.
-      // delta App Y = - delta px.
-      // So if user swipes physical right (delta px > 0), delta App Y < 0.
-      // Wait, if finger moves towards App Top (which is physical Right), then px INCREASES.
-      // delta px > 0.
-      // The content should move towards App Top, so scroll down -> scrollTop INCREASES.
-      // Native touch scroll:
-      // Finger moves up screen (delta py < 0) -> content moves up -> scrollTop INCREASES.
-      // So deltaScrollTop = - deltaFinger.
-      // In our case, the "finger" on the App's Y axis is `W - px`.
-      // delta ay = - delta px.
-      // So deltaScrollTop = - (delta ay) = delta px.
-      
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-      
-      if (e.cancelable) {
-          e.preventDefault();
-      }
-      
-      // In -90deg rotation, physical X maps to logical Y.
-      // Physical swipe left (dx < 0) corresponds to mental swipe down (towards app bottom).
-      // Mental swipe down means content moves down, meaning scroll up (scrollTop decreases).
-      // So delta scrollTop = dx
-      el.scrollTop = scrollTopStart + dx;
+    const move = (event: TouchEvent) => {
+      if (!touch || event.touches.length !== 1) { stop(); return; }
+      const point = event.touches[0], now = performance.now();
+      const dx = point.clientX - touch.x, dy = point.clientY - touch.y;
+      if (!touch.moved && Math.abs(dx) < 4) return;
+      if (!touch.moved && Math.abs(dy) > Math.abs(dx) * 1.4) { stop(); return; }
+      if (event.cancelable) event.preventDefault();
+      // Screen X maps to the rotated sidebar's vertical axis.
+      el.scrollTop += dx;
+      velocity = .6 * velocity + .4 * dx / Math.max(8, now - touch.time);
+      touch = { x: point.clientX, y: point.clientY, time: now, moved: true };
     };
-
-    el.addEventListener('touchstart', handleTouchStart, { passive: true });
-    el.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-    // Also handle wheel events for mice/trackpads
-    const handleWheel = (e: WheelEvent) => {
-      // In a rotated element, wheeling up/down (deltaY) affects the physical screen.
-      // Actually, wheel events are also in screen space.
-      // Native scroll uses deltaY to change scrollTop.
-      // Since we are rotated, the browser might try to scroll horizontally.
-      // Wait, native wheel on rotated elements usually works fine if you scroll the mouse wheel, 
-      // but trackpad swipes might be weird. Let's just fix touch for now, as it's a mobile issue.
+    const end = () => {
+      if (!touch?.moved) { stop(); return; }
+      suppressUntil = performance.now() + 400;
+      if (performance.now() - touch.time > 100) velocity = 0;
+      touch = null;
+      let previous = performance.now();
+      const coast = (now: number) => {
+        const dt = Math.min(32, now - previous); previous = now;
+        const before = el.scrollTop;
+        el.scrollTop += velocity * dt;
+        velocity *= Math.exp(-dt / 170);
+        if (Math.abs(velocity) > .02 && el.scrollTop !== before) frame = requestAnimationFrame(coast);
+      };
+      frame = requestAnimationFrame(coast);
     };
-
+    const click = (event: MouseEvent) => {
+      if (performance.now() < suppressUntil) { event.preventDefault(); event.stopPropagation(); }
+    };
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', stop);
+    el.addEventListener('click', click, true);
     return () => {
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
+      stop();
+      el.removeEventListener('touchstart', start);
+      el.removeEventListener('touchmove', move);
+      el.removeEventListener('touchend', end);
+      el.removeEventListener('touchcancel', stop);
+      el.removeEventListener('click', click, true);
     };
   }, [shouldApplyPortraitRotation]);
-
-  return (
-    <div ref={ref} className={className} {...rest}>
-      {children}
-    </div>
-  );
+  return <div ref={ref} data-rotated-scroll={shouldApplyPortraitRotation || undefined} className={className}
+    style={{ ...style, touchAction: shouldApplyPortraitRotation ? 'none' : 'pan-y', overscrollBehavior: 'contain' }} {...rest}>{children}</div>;
 }

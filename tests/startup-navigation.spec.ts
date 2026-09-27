@@ -34,7 +34,16 @@ test('successful images do not wait on a stuck optional decode promise', async (
 test('back remains usable when the browser cannot leave an installed app', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-lobby-tabs]')).toBeVisible();
-  await page.evaluate(() => { history.go = () => {}; history.back(); });
+  await page.evaluate(() => {
+    const go = history.go.bind(history);
+    // Installed apps can reject leaving the document, but same-document
+    // traversal still works. Do not disable restoration of the guard itself.
+    history.go = (delta = 0) => {
+      const position = history.state?.catanApp ? 2 : history.state?.catanBuffer ? 1 : 0;
+      if (delta >= -position) go(delta);
+    };
+    history.back();
+  });
   await expect(page.locator('.exit-toast')).toBeVisible();
   // The native second Back is intentionally released now. Exercise the
   // programmatic edge/button path whose history.go is blocked by this fixture.

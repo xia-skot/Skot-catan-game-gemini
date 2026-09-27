@@ -47,6 +47,8 @@ class SocketService {
 
   private connectionChangeCallbacks: Array<(connected: boolean) => void> = [];
 
+  get isConnected() { return !!this.socket?.connected; }
+
   onConnectionChange(callback: (connected: boolean) => void) {
     this.connectionChangeCallbacks.push(callback);
     if (this.socket) {

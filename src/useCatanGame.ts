@@ -1407,18 +1407,18 @@ export function useCatanGame() {
       
       const d1 = Math.floor(Math.random() * 6) + 1;
       const d2 = Math.floor(Math.random() * 6) + 1;
-      return { ...prev, dice: [d1, d2] as [number, number], hasRolled: true };
+      return { ...prev, dice: [d1, d2] as [number, number], hasRolled: true, diceRollPending: true };
     });
   }, []);
 
   const resolveDiceRoll = useCallback(() => {
     setGameState(prev => {
-      if (!prev || !prev.hasRolled) return prev;
+      if (!prev || !prev.hasRolled || prev.diceRollPending === false) return prev;
       if (prev.phase === 'initial_dice_roll' || prev.phase === 'setup') return prev;
       if (prev.dice[0] === 0 || prev.dice[1] === 0) return prev;
 
       const total = prev.dice[0] + prev.dice[1];
-      const next = { ...prev };
+      const next = { ...prev, diceRollPending: false };
 
       if (total === 7) {
         next.activeBuildMode = null;

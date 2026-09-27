@@ -11,7 +11,7 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import assetManifest from './src/assetManifest.json';
-import { applySettingsPatch } from './shared/roomSetup';
+import { applySettingsPatch, getRoomController } from './shared/roomSetup';
 const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
@@ -138,8 +138,9 @@ async function startServer() {
       credentials: true
     },
     allowEIO3: true,
-    pingTimeout: 60000,
-    pingInterval: 25000,
+    // Detect silent mobile disconnects without leaving AI ownership stale for 85s.
+    pingTimeout: 12000,
+    pingInterval: 8000,
     connectTimeout: 45000,
     transports: ['polling', 'websocket']
   });
@@ -1409,8 +1410,7 @@ async function startServer() {
             player.disconnected = true;
             console.log('Player marked disconnected:', playerId);
             if (room.hostId === playerId) {
-              const nextHost = room.players.find((p: any) => !p.disconnected && p.id !== playerId);
-              if (nextHost) room.hostId = nextHost.id;
+              room.hostId = getRoomController(room, false) || room.hostId;
             }
           }
         }
@@ -1775,8 +1775,7 @@ async function startServer() {
             disconnectedPlayer.disconnected = true;
             console.log('Player marked disconnected:', disconnectedPlayer.id);
             if (room.hostId === disconnectedPlayer.id) {
-              const nextHost = room.players.find((p: any) => !p.disconnected);
-              if (nextHost) room.hostId = nextHost.id;
+              room.hostId = getRoomController(room, false) || room.hostId;
             }
           }
           touchRoom(roomId);

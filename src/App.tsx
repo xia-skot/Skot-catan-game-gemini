@@ -175,8 +175,8 @@ import { GameOverModal } from './components/GameOverModal';
 import { motion, AnimatePresence, useDragControls, MotionConfig } from 'motion/react';
 import { audioService } from './audioService';
 import { preloadAllAssets } from './assetPreloader';
-import { SailingTransition } from './components/SailingScene';
-import { getSetupSlots } from '../shared/roomSetup';
+import { SailingTransition, SailingScene, LoadingDots } from './components/SailingScene';
+import { getSetupSlots, getRoomController } from '../shared/roomSetup';
 import { StartupScreen } from './components/StartupScreen';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
@@ -723,6 +723,7 @@ export default function App() {
   }, [gameState]);
 
   const [diceSum, setDiceSum] = useState<string>("?");
+  const controllerRef = useRef<string | null>(null);
   useEffect(() => {
     // If we are currently rolling, always show "?"
     if (isDiceRolling) {
@@ -803,9 +804,9 @@ export default function App() {
           // Fix: only the active player (or the host if the active player is a bot) should resolve the dice.
           const isMyTurn = gameState.players[gameState.currentPlayerIndex]?.id === myPlayerIndex;
           const isActivePlayerBot = gameState.players[gameState.currentPlayerIndex]?.isBot;
-          const isTrueHost = roomState?.hostId === socketService.playerId;
+          const isTrueHost = controllerRef.current === socketService.playerId;
           
-          if (isMyTurn || (isActivePlayerBot && isTrueHost)) {
+          if (socketService.isConnected && ((!isActivePlayerBot && isMyTurn) || (isActivePlayerBot && isTrueHost))) {
             resolveDiceRoll();
           }
         }
@@ -1361,6 +1362,8 @@ export default function App() {
   };
 
   const handleRestoreGame = (restoredRoomId: string) => {
+    setSailingText('重新驶入海域');
+    setShowSailingScreen(true);
     setInputRoomId(restoredRoomId);
     setIsRoomLocked(true);
     localStorage.setItem('catan_active_room', restoredRoomId);
@@ -1475,22 +1478,16 @@ export default function App() {
     ? gameState!.pendingGoldRewards[0].playerId
     : gameState?.currentPlayerIndex ?? 0;
 
-  const botProcessorId = useMemo(() => {
-    if (!roomState) return socketService.playerId;
-    // 1. Host (if not disconnected)
-    const hostPlayer = roomState.players.find(p => p.id === roomState.hostId);
-    if (hostPlayer && !hostPlayer.disconnected) return hostPlayer.id;
-    
-    // 2. Any other non-bot non-disconnected player
-    const fallbackPlayer = roomState.players.find(p => !p.disconnected && !p.isBot);
-    if (fallbackPlayer) return fallbackPlayer.id;
-    
-    // 3. Any non-disconnected spectator (important for bot-only games)
-    const fallbackSpectator = roomState.spectators?.find(s => !s.disconnected);
-    if (fallbackSpectator) return fallbackSpectator.id;
-    
-    return roomState.players[0]?.id || 0;
-  }, [roomState]);
+  const botProcessorId = roomState && socketService.isConnected ? getRoomController(roomState) : null;
+  controllerRef.current = botProcessorId;
+
+  useEffect(() => {
+    if (!gameState?.diceRollPending || isDiceRolling || botProcessorId !== socketService.playerId ||
+      !gameState.players[gameState.currentPlayerIndex]?.isBot) return;
+    // A new controller can finish the previous controller's in-flight dice roll.
+    const timer = setTimeout(resolveDiceRoll, 150);
+    return () => clearTimeout(timer);
+  }, [gameState?.diceRollPending, gameState?.currentPlayerIndex, gameState?.players, isDiceRolling, botProcessorId, resolveDiceRoll]);
 
   const amIActivePlayer = useMemo(() => {
     if (!gameState || isSpectator) return false;
@@ -2099,15 +2096,6 @@ export default function App() {
     }
   }, [gameState, gameStarted]);
 
-  const prevShowSailingScreen = useRef(showSailingScreen);
-  useEffect(() => {
-    if (prevShowSailingScreen.current && !showSailingScreen && gameStarted) {
-      hasManuallyInteractedRef.current = false;
-      centerMap(true);
-    }
-    prevShowSailingScreen.current = showSailingScreen;
-  }, [showSailingScreen, gameStarted, centerMap]);
-
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
@@ -2289,9 +2277,10 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    if (!window.history.state?.catanApp) {
-      window.history.replaceState({ ...window.history.state, catanBase: true }, '');
-      window.history.pushState({ catanApp: true }, '');
+    if (window.history.state?.catanHistoryVersion !== 5) {
+      window.history.replaceState({ catanBase: true, catanHistoryVersion: 5 }, '');
+      window.history.pushState({ catanBuffer: true, catanHistoryVersion: 5 }, '');
+      window.history.pushState({ catanApp: true, catanHistoryVersion: 5 }, '');
     }
 
     const performAppBackAction = () => {
@@ -2364,13 +2353,15 @@ export default function App() {
     let leaving = false;
     let releasingGuard = false;
     let restoringGuard = false;
+    const historyPosition = () => window.history.state?.catanApp ? 2 : window.history.state?.catanBuffer ? 1 : 0;
+    let lastHistoryPosition = historyPosition();
     let exitRecoveryTimer: ReturnType<typeof setTimeout>;
     const restoreGuard = () => {
       if (!window.history.state?.catanApp && !restoringGuard) {
         // Reuse the existing entry. pushState after Back makes Chromium mark
         // every same-document entry skippable until the next real interaction.
         restoringGuard = true;
-        window.history.forward();
+        window.history.go(2 - historyPosition());
       }
     };
     const handleBack = (fromPop = false) => {
@@ -2383,7 +2374,7 @@ export default function App() {
         leaving = true;
         setShowBackInterceptToast(false);
         if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
-        window.history.go(window.history.state?.catanApp ? -2 : -1);
+        window.history.go(-historyPosition() - 1);
         // An installed app may have no previous document to return to.
         // Do not leave its in-app navigation permanently disabled in that case.
         exitRecoveryTimer = setTimeout(() => {
@@ -2397,9 +2388,9 @@ export default function App() {
         setShowBackInterceptToast(true);
         // Leave the base entry exposed for one second so a native Back can exit
         // an installed app even when it has no previous web document.
-        if (!fromPop && window.history.state?.catanApp) {
+        if (historyPosition() > 0) {
           releasingGuard = true;
-          window.history.back();
+          window.history.go(-historyPosition());
         }
         if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
         backToastTimeoutRef.current = setTimeout(() => {
@@ -2410,7 +2401,14 @@ export default function App() {
       }
     };
     const handlePopState = () => {
-      if (restoringGuard && window.history.state?.catanApp) { restoringGuard = false; return; }
+      const position = historyPosition();
+      const movingForward = position > lastHistoryPosition;
+      lastHistoryPosition = position;
+      if (movingForward) {
+        restoringGuard = false;
+        if (position < 2 && exitArmedAt === -Infinity) restoreGuard();
+        return;
+      }
       if (releasingGuard) { releasingGuard = false; return; }
       if (leaving) return;
       if (performance.now() - lastEdgeBack > 400) handleBack(true);
@@ -2479,6 +2477,8 @@ export default function App() {
     window.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
     window.addEventListener('touchend', handleTouchEnd);
     window.addEventListener('touchcancel', cancelEdge);
+    // A refresh during the exit-confirmation second may restore the base entry.
+    restoreGuard();
     return () => {
       clearTimeout(exitRecoveryTimer);
       window.removeEventListener('popstate', handlePopState);
@@ -3085,13 +3085,14 @@ export default function App() {
     if (!isBotProcessor) return;
 
     const botPendingDiscards = gameState.pendingDiscards.filter(pd => gameState.players[pd.playerId]?.isBot);
-    
+    const timers: ReturnType<typeof setTimeout>[] = [];
     botPendingDiscards.forEach(pd => {
       if (!processedDiscardsRef.current[pd.playerId]) {
         processedDiscardsRef.current[pd.playerId] = true;
         
         // We use a small timeout to avoid hammering the state and simulate thinking
-        setTimeout(() => {
+        timers.push(setTimeout(() => {
+          if (controllerRef.current !== socketService.playerId || !socketService.isConnected) return;
           const player = gameState.players[pd.playerId];
           const resPool = Object.entries(player.resources).flatMap(([res, count]) => Array(count).fill(res as ResourceType));
           const toDiscard: Record<ResourceType, number> = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 };
@@ -3105,9 +3106,10 @@ export default function App() {
             }
           }
           discardCards(pd.playerId, toDiscard);
-        }, 1500 + (Math.random() * 1000));
+        }, 1500 + (Math.random() * 1000)));
       }
     });
+    return () => { timers.forEach(clearTimeout); processedDiscardsRef.current = {}; };
   }, [gameState?.phase, gameState?.pendingDiscards, botProcessorId, isDiceRolling, discardCards, gameState?.players, roomState]);
 
   // --- BOT LOGIC ---
@@ -3790,6 +3792,10 @@ export default function App() {
                       newUrl.searchParams.set('room', targetRoom);
                       window.history.replaceState(window.history.state, '', newUrl.pathname + newUrl.search);
 
+                      if (localStorage.getItem('catan_game_active') === 'true') {
+                        setSailingText('重新驶入海域');
+                        setShowSailingScreen(true);
+                      }
                       setIsJoinedLobby(true);
                       socketService.connect();
                       socketService.joinRoom(targetRoom, playerName, asSpec);
@@ -3822,6 +3828,8 @@ export default function App() {
                  onReturnToGame={(roomId) => {
                   const activeRoom = roomId || localStorage.getItem('catan_active_room');
                   if (activeRoom) {
+                    setSailingText('重新驶入海域');
+                    setShowSailingScreen(true);
                     setInputRoomId(activeRoom);
                     const asSpec = isSpectator || localStorage.getItem('catan_is_spectator') === 'true';
                     setIsJoinedLobby(true);
@@ -3925,6 +3933,13 @@ export default function App() {
         </div>
       </div>
     );
+  } else if (!roomState) {
+    mainContent = <div className="app-screen startup-ocean" data-room-connecting>
+      <SailingScene sailing={false} />
+      <div className="startup-progress"><p role="status">正在连接海域<LoadingDots /></p>
+        <button className="startup-retry" onClick={handleReturnToLobby}>返回大厅</button>
+      </div>
+    </div>;
   } else if (!gameStarted) {
     mainContent = renderNonGameWrapper(
       <>
@@ -4946,7 +4961,7 @@ export default function App() {
             </button>
           )}
 
-          <div className={`w-full h-full transition-opacity duration-700 ${isBoardReady ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`w-full h-full ${isBoardReady ? 'opacity-100' : 'opacity-0'}`}>
             <Stage 
             ref={stageRef}
             width={stageWidth} 
@@ -6363,7 +6378,8 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100000] bg-transparent pointer-events-auto flex items-center justify-center p-2 sm:p-4 w-full"
+            data-resource-choice-overlay
+            className="fixed inset-0 z-[100000] bg-transparent pointer-events-none flex items-center justify-center p-2 sm:p-4 w-full"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
@@ -7004,7 +7020,7 @@ export default function App() {
         {showSailingScreen && (
           <SailingLoadingScreen 
             key="sailing-loader" 
-            loop={!gameStarted}
+            loop={!gameStarted || !isBoardReady}
             onComplete={() => {
               if (roomState) {
                 setShowSailingScreen(false);

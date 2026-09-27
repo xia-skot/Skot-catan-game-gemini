@@ -103,7 +103,8 @@ test('board number font stays Times during and after drag caching; dice sum has 
     const style = getComputedStyle(el), p = el.querySelector('p')!;
     return { width: el.clientWidth, size: parseFloat(style.fontSize), overflow: getComputedStyle(p).overflow, textWidth: p.scrollWidth, clientWidth: p.clientWidth };
   });
-  expect(metrics.width).toBeGreaterThanOrEqual(metrics.size * 2.4);
+  expect(metrics.width).toBeGreaterThanOrEqual(metrics.size * 1.4);
+  expect(metrics.width).toBeLessThanOrEqual(metrics.size * 1.7);
   expect(metrics.textWidth).toBeLessThanOrEqual(metrics.clientWidth);
   expect(metrics.overflow).toBe('visible');
   await page.screenshot({ path: info.outputPath('board-dice-v4.png') });

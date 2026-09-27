@@ -98,6 +98,7 @@ export interface GameState {
   initialDiceRolls: Record<number, number[]>; // Maps playerId to dice roll history
   initialRollQueue?: number[]; // Queue of playerIds who need to roll
   hasRolled: boolean;
+  diceRollPending?: boolean;
   hasBuiltThisTurn: boolean;
   hasPlayedDevCardThisTurn: boolean;
   longestRoadPlayerId: number | null;

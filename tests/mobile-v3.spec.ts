@@ -139,7 +139,7 @@ test('rapid AI edits survive delayed replies and keep the configured later AI', 
   await page.getByRole('combobox').selectOption('2');
   await page.waitForTimeout(450);
   await expect(page.locator('[data-ai-slot="3"]')).toHaveAttribute('data-configured', 'true');
-  await expect(page.locator('[data-ai-slot="1"]')).toHaveAttribute('data-configured', 'false');
+  await expect(page.locator('[data-ai-slot="1"]')).toHaveCount(0);
   await page.evaluate(async () => {
     const { socketService: service } = await import('/src/' + 'socketService.ts');
     service.updateSettings(service.authoritativeRoom.roomId, { customMapName: 'Custom fixture', customMapId: 'fixture', customBoard: [{ q: 0, r: 0, type: 'forest' }] });

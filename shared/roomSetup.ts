@@ -15,16 +15,24 @@ export interface SetupRoom {
 }
 export type SettingsPatch = Partial<SetupSettings> & { botSlot?: { index: number; enabled: boolean } };
 
+export function getRoomController(room: SetupRoom, includeSpectators = true): string | null {
+  const connected = room.players.filter(player => !player.disconnected && !!player.socketId);
+  return connected.find(player => player.id === room.hostId)?.id || connected[0]?.id ||
+    (includeSpectators ? room.spectators?.find(player => !player.disconnected && !!player.socketId)?.id : null) || null;
+}
+
 export function getSetupSlots(room: SetupRoom) {
   const bots = room.settings.botConfig;
   const lastBot = bots.lastIndexOf(true);
   const length = Math.max(room.settings.playerCount, lastBot + 1, room.players.length + bots.filter(Boolean).length);
   let human = 0;
-  return Array.from({ length }, (_, index) => ({
+  const slots = Array.from({ length }, (_, index) => ({
     index,
     isBot: !!bots[index],
     player: bots[index] ? undefined : room.players[human++],
   }));
+  let emptySeats = Math.max(0, room.settings.playerCount - slots.filter(slot => slot.isBot || slot.player).length);
+  return slots.filter(slot => slot.isBot || slot.player || emptySeats-- > 0);
 }
 
 export function applySettingsPatch<T extends SetupRoom>(room: T, patch: SettingsPatch): T {
