@@ -10,9 +10,12 @@
     right: 0;
     bottom: 0;
     overflow: hidden;
+    overscroll-behavior: none;
     margin: 0;
     padding: 0;
     background-color: #f8fafc; /* bg-slate-50 */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Hide scrollbar globally for all elements while maintaining scroll functionality */

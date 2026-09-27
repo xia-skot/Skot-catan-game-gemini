@@ -3,6 +3,9 @@ import { audioService } from './audioService';
 import { loadGameImage } from './imageManager';
 
 type ProgressCallback = (progressPercent: number, label: string) => void;
+type PreloadOptions = {
+  includeAudio?: boolean;
+};
 
 let isPreloaded = false;
 let isPreloading = false;
@@ -13,9 +16,27 @@ const progressListeners: ProgressCallback[] = [];
 
 const CACHE_KEY = 'catan_assets_cached_v5';
 
+export function isResetCacheRequested(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.location.search.toLowerCase().includes('resetcache');
+  } catch {
+    return false;
+  }
+}
+
+export function shouldShowAssetLoadingScreen(): boolean {
+  if (isPreloaded) return false;
+  if (isResetCacheRequested()) return true;
+  try {
+    return localStorage.getItem(CACHE_KEY) !== 'true';
+  } catch {
+    return true;
+  }
+}
+
 export function checkIsAssetsCached(): boolean {
   try {
-    if (typeof window !== 'undefined' && window.location.search.toLowerCase().includes('resetcache')) {
+    if (isResetCacheRequested()) {
       clearAssetsCache();
       return false;
     }
@@ -36,9 +57,11 @@ export function clearAssetsCache(): void {
 }
 
 export async function preloadAllAssets(
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options: PreloadOptions = {}
 ): Promise<void> {
   const isAlreadyCached = checkIsAssetsCached();
+  const includeAudio = options.includeAudio === true;
 
   if (onProgress) {
     progressListeners.push(onProgress);
@@ -72,7 +95,7 @@ export async function preloadAllAssets(
     ]);
 
     const totalImages = ALL_GAME_IMAGES.length;
-    const totalAudio = 6;
+    const totalAudio = includeAudio ? 6 : 0;
     const totalAssets = totalImages + totalAudio;
 
     let loadedAssets = 0;
@@ -97,12 +120,17 @@ export async function preloadAllAssets(
         });
     });
 
-    // Preload audio
-    const audioPromise = audioService.preloadAllAudio(() => {
-      notifyProgress('正在预缓存音频与音效...');
-    }).catch(() => {});
+    const assetPromises: Promise<unknown>[] = [...imagePromises];
 
-    await Promise.allSettled([...imagePromises, audioPromise]);
+    if (includeAudio) {
+      assetPromises.push(audioService.preloadAllAudio(() => {
+        notifyProgress('正在预缓存音频与音效...');
+      }).catch(() => {}));
+    } else {
+      audioService.preloadAllAudio().catch(() => {});
+    }
+
+    await Promise.allSettled(assetPromises);
 
     isPreloaded = true;
     try {

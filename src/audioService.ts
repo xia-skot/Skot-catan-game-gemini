@@ -39,6 +39,7 @@ class AudioService {
   private _bgmPlaying: boolean = false;
   private _sfxEqualizer: SoundEqualizer = { ...DEFAULT_EQUALIZER };
   private _tempMuteSfx: boolean = false;
+  private _hasUserUnlockedAudio: boolean = false;
   private activeSfxClones: Set<HTMLAudioElement> = new Set();
 
   constructor() {
@@ -84,6 +85,10 @@ class AudioService {
             audio.preload = 'auto';
             this.audios[key] = audio;
           }
+        } else if (this._hasUserUnlockedAudio) {
+          // Keep already-unlocked elements on mobile; replacing them after a user
+          // gesture can make later automatic game effects silent again.
+          this.audios[key]?.load();
         } else {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -311,11 +316,16 @@ class AudioService {
   }
 
   unlockAll() {
+    this._hasUserUnlockedAudio = true;
     Object.values(this.audios).forEach(audio => {
+      audio.muted = true;
       audio.play().then(() => {
         audio.pause();
         audio.currentTime = 0;
-      }).catch(() => {});
+        audio.muted = false;
+      }).catch(() => {
+        audio.muted = false;
+      });
     });
   }
 

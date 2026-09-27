@@ -174,7 +174,7 @@ import { HEX_RESOURCES, RESOURCE_NAMES, HEX_NAMES, RESOURCE_COLORS, PLAYER_COLOR
 import { GameOverModal } from './components/GameOverModal';
 import { motion, AnimatePresence, useDragControls, MotionConfig } from 'motion/react';
 import { audioService } from './audioService';
-import { preloadAllAssets, checkIsAssetsCached } from './assetPreloader';
+import { preloadAllAssets, shouldShowAssetLoadingScreen } from './assetPreloader';
 import { 
   Dices, 
   User, 
@@ -595,11 +595,11 @@ const seededRandom = (seed: number) => {
   };
 };
 
-function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", loop = false, onCancel }: { onComplete: () => void, text?: string, loop?: boolean, onCancel?: () => void }) {
-  const isCached = useRef(checkIsAssetsCached());
-  const [preloadProgress, setPreloadProgress] = useState(isCached.current ? 70 : 0);
-  const [preloadStatusText, setPreloadStatusText] = useState(isCached.current ? '正在唤醒本地贴图...' : '资源加载中...');
-  const [preloadFinished, setPreloadFinished] = useState(false);
+function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", loop = false, onCancel, loadAssets = true }: { onComplete: () => void, text?: string, loop?: boolean, onCancel?: () => void, loadAssets?: boolean }) {
+  const shouldBlockForAssets = useRef(loadAssets && shouldShowAssetLoadingScreen());
+  const [preloadProgress, setPreloadProgress] = useState(shouldBlockForAssets.current ? 0 : 100);
+  const [preloadStatusText, setPreloadStatusText] = useState(shouldBlockForAssets.current ? '资源加载中...' : '正在进入...');
+  const [preloadFinished, setPreloadFinished] = useState(!shouldBlockForAssets.current);
   const [boatLoaded, setBoatLoaded] = useState(false);
   const [showCancelBtn, setShowCancelBtn] = useState(false);
   const [boatAnimKey, setBoatAnimKey] = useState(0);
@@ -617,6 +617,14 @@ function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", l
   useEffect(() => {
     let isMounted = true;
 
+    if (!shouldBlockForAssets.current) {
+      preloadAllAssets().catch(err => console.warn('[App] Background preload error:', err));
+      setPreloadFinished(true);
+      return () => {
+        isMounted = false;
+      };
+    }
+
     preloadAllAssets((percent, label) => {
       if (!isMounted) return;
       setPreloadProgress(percent);
@@ -631,7 +639,7 @@ function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", l
           }
         }, 150);
       }
-    }).then(() => {
+    }, { includeAudio: false }).then(() => {
       if (isMounted && !finishTriggeredRef.current) {
         finishTriggeredRef.current = true;
         setPreloadProgress(100);
@@ -797,7 +805,7 @@ function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", l
               /* When preload is loading: show small text and simplified progress bar */
               <div className="absolute bottom-8 sm:bottom-12 left-0 right-0 w-full flex flex-col items-center justify-center gap-2.5 z-[10000] px-6 sm:px-12 pointer-events-auto">
                   <span className="text-xs sm:text-sm font-bold tracking-wider text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)] animate-pulse">
-                    资源加载中...
+                    {preloadStatusText}
                   </span>
                   
                   {/* Minimalist ocean-style progress bar */}
@@ -846,11 +854,14 @@ export default function App() {
 
   useEffect(() => {
     let audioUnlocked = false;
-    const handleGlobalClick = (e: MouseEvent) => {
+    const unlockAudio = () => {
       if (!audioUnlocked) {
         audioService.unlockAll();
         audioUnlocked = true;
       }
+    };
+    const handleGlobalClick = (e: MouseEvent) => {
+      unlockAudio();
       const target = e.target as HTMLElement;
       if (target.closest('.no-click-sound')) return;
       // Check if it's a button or inside a button
@@ -859,8 +870,12 @@ export default function App() {
       }
     };
     document.addEventListener('click', handleGlobalClick);
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+    document.addEventListener('pointerdown', unlockAudio, { passive: true });
     return () => {
       document.removeEventListener('click', handleGlobalClick);
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('pointerdown', unlockAudio);
     };
   }, []);
 
@@ -899,7 +914,9 @@ export default function App() {
     preloadAllAssets().catch(err => console.warn('[App] Preload error:', err));
 
     const timer = setTimeout(() => {
-      document.documentElement.requestFullscreen().catch(() => {});
+      if (!((window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches)) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
     }, 1000);
     return () => clearTimeout(timer);
   }, []);
@@ -2078,8 +2095,9 @@ export default function App() {
      }
    };
  
-   const lobbyTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+   const lobbyTouchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
    const [lobbyDragOffset, setLobbyDragOffset] = useState(0);
+   const lobbyDragOffsetRef = useRef(0);
    const [isLobbyDragging, setIsLobbyDragging] = useState(false);
    const lobbySwipeLockedRef = useRef<'none' | 'horizontal' | 'vertical'>('none');
 
@@ -2098,8 +2116,9 @@ export default function App() {
 
      const touch = e.touches[0];
      if (touch) {
-       lobbyTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+       lobbyTouchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
        lobbySwipeLockedRef.current = 'none';
+       lobbyDragOffsetRef.current = 0;
        setIsLobbyDragging(false);
        setLobbyDragOffset(0);
      }
@@ -2116,8 +2135,8 @@ export default function App() {
      if (lobbySwipeLockedRef.current === 'none') {
        const xDist = Math.abs(deltaX);
        const yDist = Math.abs(deltaY);
-       if (xDist > 8 || yDist > 8) {
-         if (xDist > yDist * 1.2) {
+       if (xDist > 5 || yDist > 5) {
+         if (xDist > yDist * 0.85) {
            lobbySwipeLockedRef.current = 'horizontal';
            setIsLobbyDragging(true);
          } else {
@@ -2143,6 +2162,7 @@ export default function App() {
        } else if (currentIndex === tabs.length - 1 && deltaX < 0) {
          currentDrag = deltaX * 0.25; // rubber band
        }
+       lobbyDragOffsetRef.current = currentDrag;
        setLobbyDragOffset(currentDrag);
      }
    };
@@ -2150,11 +2170,16 @@ export default function App() {
    const handleLobbyTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
      if (!lobbyTouchStartRef.current) return;
      
-     const finalDrag = lobbyDragOffset;
+     const changedTouch = e.changedTouches[0];
+     const rawDrag = changedTouch ? changedTouch.clientX - lobbyTouchStartRef.current.x : lobbyDragOffsetRef.current;
+     const elapsed = Math.max(1, Date.now() - lobbyTouchStartRef.current.time);
+     const velocity = Math.abs(rawDrag) / elapsed;
+     const finalDrag = lobbyDragOffsetRef.current || rawDrag;
      const wasHorizontal = lobbySwipeLockedRef.current === 'horizontal';
 
      lobbyTouchStartRef.current = null;
      lobbySwipeLockedRef.current = 'none';
+     lobbyDragOffsetRef.current = 0;
      setIsLobbyDragging(false);
      setLobbyDragOffset(0);
 
@@ -2164,14 +2189,15 @@ export default function App() {
      const currentIndex = tabs.indexOf(activeLobbyTab);
      if (currentIndex === -1) return;
 
-     const threshold = Math.min(window.innerWidth * 0.08, 40);
+     const threshold = Math.min(window.innerWidth * 0.045, 24);
+     const isQuickSwipe = velocity > 0.35 && Math.abs(rawDrag) > 18;
 
-     if (finalDrag < -threshold) {
+     if (finalDrag < -threshold || (isQuickSwipe && rawDrag < 0)) {
        const nextIndex = Math.min(tabs.length - 1, currentIndex + 1);
        if (nextIndex !== currentIndex) {
          setActiveLobbyTab(tabs[nextIndex]);
        }
-     } else if (finalDrag > threshold) {
+     } else if (finalDrag > threshold || (isQuickSwipe && rawDrag > 0)) {
        const prevIndex = Math.max(0, currentIndex - 1);
        if (prevIndex !== currentIndex) {
          setActiveLobbyTab(tabs[prevIndex]);
@@ -2281,10 +2307,12 @@ export default function App() {
   
   useEffect(() => {
     if (gameStarted && !prevGameStarted.current && isJoinedLobby) {
-        if (!showSailingScreen && !isAutoReconnectingRef.current) {
+        if (!showSailingScreen && !isAutoReconnectingRef.current && shouldShowAssetLoadingScreen()) {
            sailingStartTimeRef.current = performance.now();
            setSailingText("正在驶入海域......");
            setShowSailingScreen(true);
+        } else {
+          preloadAllAssets().catch(err => console.warn('[App] Background preload error:', err));
         }
         // After game starts once, we no longer consider it an "auto-reconnect" trigger
         if (isAutoReconnectingRef.current) {
@@ -2419,6 +2447,8 @@ export default function App() {
 
   // Force fullscreen on immediate load (might be blocked by browser) and listener as fallback
   useEffect(() => {
+    if (isStandalone) return;
+
     const triggerFullscreen = () => {
       if (!document.fullscreenElement) {
         toggleFullscreen();
@@ -2435,7 +2465,7 @@ export default function App() {
       window.removeEventListener('click', triggerFullscreen);
       window.removeEventListener('touchstart', triggerFullscreen);
     };
-  }, [toggleFullscreen]);
+  }, [toggleFullscreen, isStandalone]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -2758,27 +2788,24 @@ export default function App() {
     // Push state to protect the stack
     window.history.pushState({ preventBack: true }, "");
 
-    const handlePopState = () => {
-      // Re-push state immediately to block navigation
-      window.history.pushState({ preventBack: true }, "");
-
+    const performAppBackAction = () => {
       // 1. In game
       if (gameStartedRef.current) {
         if (showSoundModalRef.current) {
           setShowSoundModal(false);
-          return;
+          return true;
         }
         if (showRulesModalRef.current) {
           if (rulesActiveViewRef.current !== 'menu') {
             setRulesActiveView('menu');
-            return;
+            return true;
           }
           setShowRulesModal(false);
           setRulesActiveView('menu');
-          return;
+          return true;
         }
         // In game and no modals open -> do nothing (suppress exit / fullscreen interception prompt)
-        return;
+        return true;
       }
 
       // 2. Matching screen
@@ -2787,22 +2814,22 @@ export default function App() {
         if (handleReturnToLobbyRef.current) {
           handleReturnToLobbyRef.current();
         }
-        return;
+        return true;
       }
 
       // 3. Modals open in lobby
       if (showSoundModalRef.current) {
         setShowSoundModal(false);
-        return;
+        return true;
       }
       if (showRulesModalRef.current) {
         if (rulesActiveViewRef.current !== 'menu') {
           setRulesActiveView('menu');
-          return;
+          return true;
         }
         setShowRulesModal(false);
         setRulesActiveView('menu');
-        return;
+        return true;
       }
 
       // 4. Lobby tabs (profile sub-views, rules sub-views, or non-main tabs -> return to profile/rules main view or lobby 'lobby')
@@ -2811,40 +2838,52 @@ export default function App() {
         if (activeLobbyTabRef.current === 'profile') {
           if (profileActiveViewRef.current !== 'menu') {
             setProfileActiveView('menu');
-            return;
+            return true;
           }
           setActiveLobbyTab('lobby');
-          return;
+          return true;
         }
         if (activeLobbyTabRef.current === 'rules') {
           if (rulesActiveViewRef.current !== 'menu') {
             setRulesActiveView('menu');
-            return;
+            return true;
           }
           setActiveLobbyTab('lobby');
-          return;
+          return true;
         }
         if (activeLobbyTabRef.current !== 'lobby') {
           setActiveLobbyTab('lobby');
           setRulesActiveView('menu');
           setProfileActiveView('menu');
-          return;
+          return true;
         }
       }
+
+      return false;
+    };
+
+    const handlePopState = () => {
+      // Re-push state immediately to block navigation
+      window.history.pushState({ preventBack: true }, "");
+      performAppBackAction();
     };
 
     window.addEventListener("popstate", handlePopState);
 
     // Active touch interceptor near screen edges to block swipe-to-back/forward gesture on iOS and Android
     let startX = 0;
+    let startY = 0;
     let isEdgeTouch = false;
+    let isLeftEdgeBackTouch = false;
 
     const handleTouchStart = (e) => {
       const touch = e.touches[0];
       if (!touch) return;
       startX = touch.clientX;
+      startY = touch.clientY;
       const edgeThreshold = 40; // Pixels from left/right edges
       isEdgeTouch = startX < edgeThreshold || startX > (window.innerWidth - edgeThreshold);
+      isLeftEdgeBackTouch = startX < edgeThreshold;
     };
 
     const handleTouchMove = (e) => {
@@ -2855,14 +2894,30 @@ export default function App() {
         }
       }
     };
+    
+    const handleTouchEnd = (e) => {
+      if (!isLeftEdgeBackTouch) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      if (deltaX > 48 && Math.abs(deltaY) < 80) {
+        performAppBackAction();
+      }
+      isEdgeTouch = false;
+      isLeftEdgeBackTouch = false;
+    };
 
     window.addEventListener("touchstart", handleTouchStart, { passive: false });
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
       if (backToastTimeoutRef.current) {
         clearTimeout(backToastTimeoutRef.current);
       }
@@ -4851,7 +4906,7 @@ export default function App() {
     mainContent = (
       <>
         <div style={lockedLandscapeStyle}>
-          <div className="flex flex-col items-center justify-center h-full w-full bg-sky-100 text-[#0c4a6e] relative overflow-hidden" onClick={() => document.documentElement.requestFullscreen().catch(() => {})}>
+          <div className="flex flex-col items-center justify-center h-full w-full bg-sky-100 text-[#0c4a6e] relative overflow-hidden" onClick={() => { if (!isStandalone) document.documentElement.requestFullscreen().catch(() => {}); }}>
             {/* Ocean atmosphere */}
             <div className="absolute inset-0 bg-white/40 pointer-events-none" />
             
