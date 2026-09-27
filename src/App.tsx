@@ -238,14 +238,31 @@ import {
   RESOURCE_ICONS, SAILING_BOAT_IMG, CATAN_LOGO_IMG, ALL_GAME_IMAGES,
   getImageUrl, getImageCandidates, getDevCardImg
 } from './images';
-import { useGameImage } from './imageManager';
+import { getCachedImageElement, loadGameImage, useGameImage } from './imageManager';
 
 export const SmartImg = ({ src, alt, className, onClick, ...props }: any) => {
-  const [currentSrc, setCurrentSrc] = useState(() => getImageUrl(src));
+  const [currentSrc, setCurrentSrc] = useState(() => getCachedImageElement(src)?.src || getImageUrl(src));
   const candidateIdxRef = useRef(0);
 
   useEffect(() => {
+    candidateIdxRef.current = 0;
+    const cached = getCachedImageElement(src);
+    if (cached) {
+      setCurrentSrc(cached.src);
+      return;
+    }
+
+    let isMounted = true;
     setCurrentSrc(getImageUrl(src));
+    loadGameImage(src)
+      .then((img) => {
+        if (isMounted) setCurrentSrc(img.src);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
   }, [src]);
 
   const handleError = () => {
@@ -580,14 +597,14 @@ const seededRandom = (seed: number) => {
 
 function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", loop = false, onCancel }: { onComplete: () => void, text?: string, loop?: boolean, onCancel?: () => void }) {
   const isCached = useRef(checkIsAssetsCached());
-  const [preloadProgress, setPreloadProgress] = useState(isCached.current ? 100 : 0);
-  const [preloadStatusText, setPreloadStatusText] = useState('资源加载中...');
-  const [preloadFinished, setPreloadFinished] = useState(isCached.current);
+  const [preloadProgress, setPreloadProgress] = useState(isCached.current ? 70 : 0);
+  const [preloadStatusText, setPreloadStatusText] = useState(isCached.current ? '正在唤醒本地贴图...' : '资源加载中...');
+  const [preloadFinished, setPreloadFinished] = useState(false);
   const [boatLoaded, setBoatLoaded] = useState(false);
   const [showCancelBtn, setShowCancelBtn] = useState(false);
   const [boatAnimKey, setBoatAnimKey] = useState(0);
 
-  const finishTriggeredRef = useRef(isCached.current);
+  const finishTriggeredRef = useRef(false);
   const completedRef = useRef(false);
 
   const triggerComplete = useCallback(() => {
@@ -599,12 +616,6 @@ function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", l
 
   useEffect(() => {
     let isMounted = true;
-    if (checkIsAssetsCached()) {
-      setPreloadFinished(true);
-      setPreloadProgress(100);
-      finishTriggeredRef.current = true;
-      return;
-    }
 
     preloadAllAssets((percent, label) => {
       if (!isMounted) return;
@@ -8060,4 +8071,3 @@ function DiscardPanel({ player, amount, onDiscard, onChange, shouldApplyPortrait
     </div>
   );
 }
-

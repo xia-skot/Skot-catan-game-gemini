@@ -731,6 +731,9 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   const isMobileDevice = typeof window !== 'undefined' && 
     (window.innerWidth < 1024 || window.innerHeight < 1024);
   const isActuallyFullScreen = fullScreen || isMobileDevice;
+  const headerPaddingClass = inline
+    ? 'py-2.5 sm:py-3'
+    : 'py-2.5 sm:py-3 pt-[calc(0.625rem+env(safe-area-inset-top,0px))]';
 
   const content = (
     <motion.div 
@@ -896,7 +899,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       )}
 
       {/* Header Profile Section */}
-      <div className="bg-white px-4 py-2.5 sm:px-5 sm:py-3 pt-[calc(0.625rem+env(safe-area-inset-top,0px))] shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm">
+      <div className={`bg-white px-4 sm:px-5 ${headerPaddingClass} shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm`}>
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center border-2 border-indigo-200/50 relative overflow-hidden shrink-0">
             <User size={22} />
