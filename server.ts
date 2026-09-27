@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import assetManifest from './src/assetManifest.json';
+import { applySettingsPatch } from './shared/roomSetup';
 const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
@@ -1338,6 +1339,7 @@ async function startServer() {
       touchRoom(roomId);
       
       const existingPlayer = room.players.find((p: any) => p.id === playerId);
+      const returningParticipant = !!existingPlayer || !!room.spectators?.some((s: any) => s.id === playerId);
       if (!existingPlayer) {
         // If they explicitly want to spectate, are already a spectator, game has started, or room is full
         const botCount = room.settings?.botConfig?.filter((b: boolean) => b).length || 0;
@@ -1377,7 +1379,7 @@ async function startServer() {
       io.to(roomId).emit('room_state', room);
       
       if (room.gameState) {
-        socket.emit('game_init', room.gameState);
+        socket.emit('game_init', room.gameState, { entry: returningParticipant ? 'resume' : 'start' });
       }
     });
 
@@ -1491,10 +1493,13 @@ async function startServer() {
       }
     });
 
-    socket.on('update_settings', (roomId: string, playerId: string, settings: any) => {
+    socket.on('update_settings', (roomId: string, playerId: string, settings: any, mutation?: { clientId: string; sequence: number }) => {
       const room = rooms.get(roomId);
-      if (room && room.hostId === playerId) {
-        room.settings = settings;
+      if (room && !room.gameState && room.hostId === playerId && settings && typeof settings === 'object') {
+        Object.assign(room, applySettingsPatch(room, settings));
+        if (typeof mutation?.clientId === 'string' && mutation.clientId.length < 80 && Number.isSafeInteger(mutation.sequence)) {
+          room.settingsMutation = mutation;
+        }
         touchRoom(roomId);
         io.to(roomId).emit('room_state', room);
       }
@@ -1659,7 +1664,7 @@ async function startServer() {
       if (room) {
         room.gameState = initialGameState;
       }
-      io.to(roomId).emit('game_init', initialGameState);
+      io.to(roomId).emit('game_init', initialGameState, { entry: 'start' });
     });
 
     socket.on('return_to_lobby', (roomId: string, playerId: string) => {

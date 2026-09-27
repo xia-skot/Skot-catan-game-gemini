@@ -49,6 +49,7 @@ scripts/sync-assets.mjs
 scripts/sync-assets.ps1
 server.ts
 server/messageRoutes.ts
+shared/roomSetup.ts
 src/App.tsx
 src/assetCache.ts
 src/assetManifest.json
@@ -58,8 +59,10 @@ src/components/AssetGate.tsx
 src/components/AdminDashboard.tsx
 src/components/GoldSelectionPanel.tsx
 src/components/LoginScreen.tsx
+src/components/MapAlbumModal.tsx
 src/components/ResourceSelector.tsx
 src/components/RulesModal.tsx
+src/components/SailingScene.tsx
 src/components/SmartImage.tsx
 src/components/StartupScreen.tsx
 src/components/SoundSettingsModal.tsx
@@ -71,11 +74,14 @@ src/index.css
 src/main.tsx
 src/messageReadState.ts
 src/navigation.ts
+src/socketService.ts
+src/useCatanGame.ts
 src/useLobbySwipe.ts
 src/vite-env.d.ts
 tests/edge-cases.spec.ts
 tests/messages.spec.ts
 tests/mobile.spec.ts
+tests/mobile-v3.spec.ts
 tests/production.spec.ts
 tests/startup-navigation.spec.ts
 vite.config.ts

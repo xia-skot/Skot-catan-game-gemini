@@ -17,6 +17,7 @@ import {
   WOOL_ICON,
   GRAIN_ICON,
   ORE_ICON,
+  getDevCardImg,
   getImageUrl,
   getImageCandidates
 } from '../images';
@@ -148,21 +149,13 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
         </div>
         
         <div className="flex items-center gap-1">
-            {activeView !== 'menu' && (
+            {(activeView !== 'menu' || !inline) && (
               <button 
                 onClick={requestAppBack}
                 className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
                 title="返回"
               >
                 <ArrowLeft size={18} />
-              </button>
-            )}
-            {!inline && onClose && (
-              <button 
-                onClick={onClose}
-                className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors ml-2"
-              >
-                <X size={20} />
               </button>
             )}
         </div>
@@ -730,7 +723,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                        <span className="text-lg leading-none">⚔️</span> 骑士卡
+                        <SmartImage src={getDevCardImg('knight')} alt="骑士卡" className="w-7 h-7 object-contain" /> 骑士卡
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 14 张</span>
                     </div>
@@ -740,7 +733,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                        <span className="text-lg leading-none">🏆</span> 胜利点卡
+                        <SmartImage src={getDevCardImg('victory_point')} alt="胜利点卡" className="w-7 h-7 object-contain" /> 胜利点卡
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 5 张</span>
                     </div>
@@ -750,7 +743,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                        <span className="text-lg leading-none">🛣️</span> 道路建设
+                        <SmartImage src={getDevCardImg('road_building')} alt="道路建设" className="w-7 h-7 object-contain" /> 道路建设
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>
@@ -760,7 +753,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                        <span className="text-lg leading-none">🎁</span> 丰收之年
+                        <SmartImage src={getDevCardImg('year_of_plenty')} alt="丰收之年" className="w-7 h-7 object-contain" /> 丰收之年
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>
@@ -770,7 +763,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                        <span className="text-lg leading-none">💎</span> 垄断
+                        <SmartImage src={getDevCardImg('monopoly')} alt="垄断" className="w-7 h-7 object-contain" /> 垄断
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>

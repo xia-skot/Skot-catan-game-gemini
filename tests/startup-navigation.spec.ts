@@ -36,7 +36,9 @@ test('back remains usable when the browser cannot leave an installed app', async
   await expect(page.locator('[data-lobby-tabs]')).toBeVisible();
   await page.evaluate(() => { history.go = () => {}; history.back(); });
   await expect(page.locator('.exit-toast')).toBeVisible();
-  await page.evaluate(() => history.back());
+  // The native second Back is intentionally released now. Exercise the
+  // programmatic edge/button path whose history.go is blocked by this fixture.
+  await page.evaluate(() => window.dispatchEvent(new Event('catan:back')));
   await page.waitForTimeout(850);
   const nav = page.locator('.lobby-tab-bar');
   await nav.getByRole('button', { name: '我的', exact: true }).click();

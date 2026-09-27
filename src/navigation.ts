@@ -10,6 +10,7 @@ export function useBackHandler(enabled: boolean, handler: () => boolean, priorit
     if (!enabled) return;
     const key = Symbol('back');
     backHandlers.set(key, { priority, run: () => latest.current() });
+    window.dispatchEvent(new Event('catan:navigation'));
     return () => { backHandlers.delete(key); };
   }, [enabled, priority]);
 }

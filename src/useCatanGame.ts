@@ -1106,7 +1106,7 @@ export function useCatanGame() {
 
 
 
-  const initGame = useCallback((playerCount: number, mapType: MapType = 'standard', customBoard?: Hex[], botConfig?: boolean[], connectedPlayers?: string[], playerNames?: string[]) => {
+  const initGame = useCallback((playerCount: number, mapType: MapType = 'standard', customBoard?: Hex[], botConfig?: boolean[], connectedPlayers?: string[], playerNames?: string[], seatNumbers?: number[]) => {
     let cpIndex = 0;
     const players: Player[] = Array.from({ length: playerCount }, (_, i) => {
       const isConfiguredBot = botConfig ? botConfig[i] : false;
@@ -1120,7 +1120,7 @@ export function useCatanGame() {
         pSessionId = connectedPlayers?.[cpIndex];
         cpIndex++;
       } else if (isConfiguredBot) {
-        pName = `领主 AI ${i + 1}`;
+        pName = `领主 AI ${seatNumbers?.[i] ?? i + 1}`;
       }
 
       return {

@@ -8,6 +8,10 @@ import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { markMessagesRead, readMessageIds } from '../messageReadState';
 
+function UnreadBadge({ count }: { count: number }) {
+  return count > 0 ? <span aria-label={`${count}条未读消息`} data-unread-count={count} className="absolute -top-1 -right-2 min-w-5 h-5 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-xs">{count > 99 ? '99+' : count}</span> : null;
+}
+
 interface UserProfileModalProps {
   currentUser: any;
   onClose: () => void;
@@ -748,14 +752,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       {/* Top Chat Header */}
           <div className="bg-white px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] border-b border-slate-200/80 text-slate-800 shadow-xs flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 min-w-0">
-              <button 
-                onClick={requestAppBack}
-                className="p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-600 hover:text-slate-900 shrink-0"
-                title="返回"
-              >
-                <ArrowLeft size={18} />
-              </button>
-
               <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shrink-0">
                 {chatPartnerName.slice(0, 1).toUpperCase()}
               </div>
@@ -772,13 +768,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               </div>
             </div>
 
-            <button
+            <div className="flex items-center gap-1 shrink-0"><button
               onClick={() => handleDeleteConversation(isAdmin ? (selectedChatPlayer || undefined) : adminDisplayName)}
               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"
               title="删除对话框"
             >
               <Trash2 size={16} />
             </button>
+            <button onClick={requestAppBack} title="返回" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
           </div>
 
           {/* Messages Area */}
@@ -916,21 +913,13 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         </div>
         
         <div className="flex items-center gap-1">
-            {activeView !== 'menu' && (
+            {(activeView !== 'menu' || !inline) && (
               <button 
                 onClick={requestAppBack}
                 className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
                 title="返回"
               >
                 <ArrowLeft size={18} />
-              </button>
-            )}
-            {!inline && (
-              <button 
-                onClick={onClose}
-                className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors ml-2"
-              >
-                <X size={20} />
               </button>
             )}
         </div>
@@ -1486,9 +1475,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shadow-xs">
                           {adminDisplayName.slice(0, 1).toUpperCase()}
                         </div>
-                        {playerPrivateMsgs.some(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id) ? (
-                          <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white shadow-xs"></span>
-                        ) : null}
+                        <UnreadBadge count={playerPrivateMsgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).length} />
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -1549,9 +1536,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                               <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
                                 {conv.username.slice(0, 1).toUpperCase()}
                               </div>
-                              {conv.msgs.some((m: any) => !m.read && m.senderName === conv.username) && (
-                                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white shadow-xs"></span>
-                              )}
+                              <UnreadBadge count={conv.msgs.filter((m: any) => !m.read && m.senderName === conv.username).length} />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">

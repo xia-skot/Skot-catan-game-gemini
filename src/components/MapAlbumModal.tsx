@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
+  ArrowLeft,
   Trash2, 
   MoreVertical, 
   Type, 
@@ -69,22 +70,15 @@ export function MapAlbumModal({
       {/* Top Header Navigation Bar */}
       <div className="px-4 sm:px-8 py-3 sm:py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-2xs">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
-          >
-            ← 返回房间
-          </button>
-          <div className="h-4 w-px bg-slate-200" />
           <h2 className="text-base sm:text-xl font-serif font-black italic text-slate-800">地图收藏册</h2>
         </div>
 
         <button 
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold text-xs transition-colors"
-          title="关闭"
+          title="返回房间"
         >
-          ✕
+          <ArrowLeft size={18} />
         </button>
       </div>
 

@@ -184,6 +184,7 @@ test('real board renders complete textures in both orientations', async ({ page 
   await page.getByRole('button', { name: '进入海域', exact: true }).click();
   await page.getByRole('button', { name: '就绪', exact: true }).click();
   await page.getByRole('button', { name: '开启游戏', exact: true }).click();
+  await expect(page.locator('[data-game-sailing]')).toHaveCount(0, { timeout: 10000 });
   await expect(page.locator('canvas').first()).toBeVisible();
   expect(await page.evaluate(async () => (await import('/src/' + 'assetPreloader.ts')).checkIsAssetsCached())).toBe(true);
   await expect.poll(() => page.locator('canvas').first().evaluate((canvas: HTMLCanvasElement) => {

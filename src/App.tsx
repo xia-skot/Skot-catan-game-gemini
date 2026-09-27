@@ -174,7 +174,9 @@ import { HEX_RESOURCES, RESOURCE_NAMES, HEX_NAMES, RESOURCE_COLORS, PLAYER_COLOR
 import { GameOverModal } from './components/GameOverModal';
 import { motion, AnimatePresence, useDragControls, MotionConfig } from 'motion/react';
 import { audioService } from './audioService';
-import { preloadAllAssets, shouldShowAssetLoadingScreen } from './assetPreloader';
+import { preloadAllAssets } from './assetPreloader';
+import { SailingTransition } from './components/SailingScene';
+import { getSetupSlots } from '../shared/roomSetup';
 import { StartupScreen } from './components/StartupScreen';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
@@ -557,13 +559,8 @@ const seededRandom = (seed: number) => {
   };
 };
 
-function EnteringScreen({ onComplete, loop, text }: { onComplete: () => void; loop: boolean; text: string }) {
-  useEffect(() => { if (!loop) onComplete(); }, [loop, onComplete]);
-  return <div className="app-screen flex items-center justify-center bg-sky-100 text-sky-800 text-sm">{text}</div>;
-}
-
-function SailingLoadingScreen({ onComplete, text = '正在进入...', loop = false, onCancel, loadAssets = true }: { onComplete: () => void; text?: string; loop?: boolean; onCancel?: () => void; loadAssets?: boolean }) {
-  const screen = <EnteringScreen onComplete={onComplete} loop={loop} text={text} />;
+function SailingLoadingScreen({ onComplete, text = '正在驶入海域', loop = false, onCancel, loadAssets = true }: { onComplete: () => void; text?: string; loop?: boolean; onCancel?: () => void; loadAssets?: boolean }) {
+  const screen = <SailingTransition onComplete={onComplete} loop={loop} text={text} />;
   return loadAssets ? <AssetGate onCancel={onCancel || onComplete}>{screen}</AssetGate> : screen;
 }
 
@@ -1139,17 +1136,28 @@ export default function App() {
           setGameStarted(true);
           const asSpec = isSpectator || localStorage.getItem('catan_is_spectator') === 'true';
           setSailingText(asSpec ? "正在驶入海域......" : "重新驶入海域......");
-          setShowSailingScreen(shouldShowAssetLoadingScreen());
+          setShowSailingScreen(true);
         } else {
           setGameStarted(true);
         }
+        gameStartedRef.current = true;
       } else {
         localStorage.removeItem('catan_game_active');
+        gameStartedRef.current = false;
         setGameStarted(false);
+        setShowSailingScreen(false);
       }
     });
 
-    socketService.onGameInit((newState) => {
+    socketService.onGameInit((newState, context) => {
+      // Entry metadata stays correct even if a room update arrives later.
+      if (context || !gameStartedRef.current) {
+        setSailingText(context?.entry === 'resume' ? '重新驶入海域' : '正在驶入海域');
+      }
+      if (context?.entry === 'start' || !gameStartedRef.current) {
+        setShowSailingScreen(true);
+      }
+      gameStartedRef.current = true;
       isRemoteUpdateRef.current = true;
       syncGameState(newState);
       setGameStarted(true);
@@ -1159,6 +1167,11 @@ export default function App() {
     });
 
     socketService.onGameUpdate((newState) => {
+      if (!gameStartedRef.current) {
+        setSailingText('重新驶入海域');
+        setShowSailingScreen(true);
+      }
+      gameStartedRef.current = true;
       isRemoteUpdateRef.current = true;
       syncGameState(newState);
       setGameStarted(true); // Always ensure UI switches to game
@@ -1455,7 +1468,7 @@ export default function App() {
 
   const syncSettings = (newSettings: Partial<RoomState['settings']>) => {
     if (!roomState?.roomId) return;
-    socketService.updateSettings(roomState.roomId, { ...roomState.settings, ...newSettings });
+    socketService.updateSettings(roomState.roomId, newSettings);
   };
 
   const activePlayerId = (gameState?.phase === 'discard' && (gameState?.pendingDiscards?.length || 0) > 0)
@@ -1869,7 +1882,6 @@ export default function App() {
     };
   }, [isAuthLoading, gameStarted, showSailingScreen, isJoinedLobby, showSoundModal]);
 
-  const sailingStartTimeRef = useRef(0);
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [debugSaveName, setDebugSaveName] = useState('');
   const [debugSaveStatus, setDebugSaveStatus] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -1877,25 +1889,6 @@ export default function App() {
   const [debugModeEnabled, setDebugModeEnabled] = useState(false);
   const logoClickCountRef = useRef(0);
   const logoStartTimeRef = useRef<number>(0);
-
-  const prevGameStarted = useRef(gameStarted);
-  
-  useEffect(() => {
-    if (gameStarted && !prevGameStarted.current && isJoinedLobby) {
-        if (!showSailingScreen && !isAutoReconnectingRef.current && shouldShowAssetLoadingScreen()) {
-           sailingStartTimeRef.current = performance.now();
-           setSailingText("正在驶入海域......");
-           setShowSailingScreen(true);
-        } else {
-          preloadAllAssets().catch(err => console.warn('[App] Background preload error:', err));
-        }
-        // After game starts once, we no longer consider it an "auto-reconnect" trigger
-        if (isAutoReconnectingRef.current) {
-          isAutoReconnectingRef.current = false;
-        }
-    }
-    prevGameStarted.current = gameStarted;
-  }, [gameStarted, isJoinedLobby, showSailingScreen]);
 
   const [showGameOver, setShowGameOver] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -2319,6 +2312,10 @@ export default function App() {
   }, [profileActiveView]);
 
   useEffect(() => {
+    window.dispatchEvent(new Event('catan:navigation'));
+  }, [activeLobbyTab]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
 
     if (!window.history.state?.catanApp) {
@@ -2371,7 +2368,7 @@ export default function App() {
         return true;
       }
 
-      // 4. Lobby tabs (profile sub-views, rules sub-views, or non-main tabs -> return to profile/rules main view or lobby 'lobby')
+      // Primary tabs are peers. Only a nested view consumes an in-app back.
       const inLobby = !roomStateRef.current && !isJoinedLobbyRef.current;
       if (inLobby) {
         if (activeLobbyTabRef.current === 'profile') {
@@ -2379,22 +2376,12 @@ export default function App() {
             setProfileActiveView('menu');
             return true;
           }
-          setActiveLobbyTab('lobby');
-          return true;
         }
         if (activeLobbyTabRef.current === 'rules') {
           if (rulesActiveViewRef.current !== 'menu') {
             setRulesActiveView('menu');
             return true;
           }
-          setActiveLobbyTab('lobby');
-          return true;
-        }
-        if (activeLobbyTabRef.current !== 'lobby') {
-          setActiveLobbyTab('lobby');
-          setRulesActiveView('menu');
-          setProfileActiveView('menu');
-          return true;
         }
       }
 
@@ -2404,39 +2391,66 @@ export default function App() {
     let lastEdgeBack = -Infinity;
     let exitArmedAt = -Infinity;
     let leaving = false;
+    let releasingGuard = false;
     let exitRecoveryTimer: ReturnType<typeof setTimeout>;
+    const restoreGuard = () => {
+      if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+    };
     const handleBack = (fromPop = false) => {
       if (leaving) return;
       if (performAppBackAction()) {
+        restoreGuard();
         exitArmedAt = -Infinity;
         setShowBackInterceptToast(false);
-      } else if (performance.now() - exitArmedAt < 2200) {
+      } else if (performance.now() - exitArmedAt < 1000) {
         leaving = true;
         setShowBackInterceptToast(false);
-        // A pop has already consumed the app sentinel. Never push it again on exit.
-        window.history.go(fromPop ? -1 : -2);
+        if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
+        window.history.go(window.history.state?.catanApp ? -2 : -1);
         // An installed app may have no previous document to return to.
         // Do not leave its in-app navigation permanently disabled in that case.
         exitRecoveryTimer = setTimeout(() => {
           leaving = false;
           exitArmedAt = -Infinity;
-          if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+          restoreGuard();
         }, 700);
         return;
       } else {
         exitArmedAt = performance.now();
         setShowBackInterceptToast(true);
+        // Leave the base entry exposed for one second so a native Back can exit
+        // an installed app even when it has no previous web document.
+        if (!fromPop && window.history.state?.catanApp) {
+          releasingGuard = true;
+          window.history.back();
+        }
         if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
-        backToastTimeoutRef.current = setTimeout(() => setShowBackInterceptToast(false), 2200);
+        backToastTimeoutRef.current = setTimeout(() => {
+          exitArmedAt = -Infinity;
+          setShowBackInterceptToast(false);
+          if (!leaving) restoreGuard();
+        }, 1000);
       }
-      if (fromPop && !window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
     };
     const handlePopState = () => {
+      if (releasingGuard) { releasingGuard = false; return; }
       if (leaving) return;
       if (performance.now() - lastEdgeBack > 400) handleBack(true);
-      else if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+      else {
+        lastEdgeBack = -Infinity;
+        if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+      }
     };
     const appBack = () => { handleBack(); };
+    const resetExit = () => {
+      leaving = false;
+      clearTimeout(exitRecoveryTimer);
+      exitArmedAt = -Infinity;
+      setShowBackInterceptToast(false);
+      if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
+      restoreGuard();
+    };
+    const restoreOnVisible = () => { if (!document.hidden) resetExit(); };
     const suppressClick = (event: MouseEvent) => {
       if (shouldSuppressGestureClick()) { event.preventDefault(); event.stopImmediatePropagation(); }
     };
@@ -2478,6 +2492,10 @@ export default function App() {
     };
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('catan:back', appBack);
+    window.addEventListener('catan:navigation', resetExit);
+    window.addEventListener('pageshow', resetExit);
+    window.addEventListener('focus', resetExit);
+    document.addEventListener('visibilitychange', restoreOnVisible);
     window.addEventListener('click', suppressClick, true);
     window.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
@@ -2487,6 +2505,10 @@ export default function App() {
       clearTimeout(exitRecoveryTimer);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('catan:back', appBack);
+      window.removeEventListener('catan:navigation', resetExit);
+      window.removeEventListener('pageshow', resetExit);
+      window.removeEventListener('focus', resetExit);
+      document.removeEventListener('visibilitychange', restoreOnVisible);
       window.removeEventListener('click', suppressClick, true);
       window.removeEventListener('touchstart', handleTouchStart, true);
       window.removeEventListener('touchmove', handleTouchMove, true);
@@ -3450,9 +3472,8 @@ export default function App() {
 
   const handleStartGame = async () => {
     setIsStartingGame(true);
-    sailingStartTimeRef.current = performance.now();
     setSailingText("正在驶入海域......");
-    setShowSailingScreen(shouldShowAssetLoadingScreen());
+    setShowSailingScreen(true);
     // Yield to the browser so the Sailing screen renders before blocking
     await new Promise(resolve => setTimeout(resolve, 50));
     
@@ -3482,13 +3503,15 @@ export default function App() {
     const assignedNames = roomState.players.map(p => p.name);
     
     // Instead of directly initGame, set to initial_dice_roll phase
+    const configuredSlots = getSetupSlots(roomState).filter(slot => slot.isBot || slot.player);
     const initialState = initGame(
       roomState.settings.playerCount, 
       roomState.settings.mapType as MapType, 
       roomState.settings.customBoard, 
-      roomState.settings.botConfig, 
+      configuredSlots.map(slot => slot.isBot),
       assignedSessions,
-      assignedNames
+      assignedNames,
+      configuredSlots.map(slot => slot.index + 1)
     );
     
     if (initialState) {
@@ -4040,7 +4063,7 @@ export default function App() {
                   return (
                     <button
                       key={map.id}
-                      onClick={() => { setMapType(map.id as MapType); syncSettings({ mapType: map.id, customBoard: undefined, customMapName: undefined, customMapId: undefined }); }}
+                      onClick={() => syncSettings({ mapType: map.id, customBoard: undefined, customMapName: undefined, customMapId: undefined })}
                       className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 border ${isSelected ? 'bg-white border-indigo-500 shadow-md shadow-indigo-100 ring-2 ring-indigo-500/10' : 'bg-white/60 border-slate-100 hover:border-indigo-200 hover:bg-white text-slate-700'}`}
                     >
                       <div className={`w-12 h-8 sm:w-16 sm:h-10 relative overflow-hidden flex items-center justify-center transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}>
@@ -4169,7 +4192,6 @@ export default function App() {
                         value={playerCount} 
                         onChange={e => {
                           const newCount = Number(e.target.value);
-                          setPlayerCount(newCount);
                           syncSettings({ playerCount: newCount });
                         }}
                         disabled={!isHostInLobby}
@@ -4206,11 +4228,7 @@ export default function App() {
 
             {/* Players List */}
             <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-0.5 no-scrollbar py-0.5">
-              {Array.from({ length: Math.max(playerCount, (roomState?.players.length || 0) + botConfig.filter(b => b).length) }).map((_, globalIndex) => {
-                const paddedBotConfig = [...botConfig, false, false, false, false, false, false, false, false, false].slice(0, 10);
-                const isBot = paddedBotConfig[globalIndex];
-                const nonBotSlotsBefore = paddedBotConfig.slice(0, globalIndex).filter(b => !b).length;
-                const p = roomState?.players[nonBotSlotsBefore];
+              {(roomState ? getSetupSlots(roomState) : []).map(({ index: globalIndex, isBot, player: p }) => {
 
                 if (!isBot && p) {
                   return (
@@ -4274,27 +4292,24 @@ export default function App() {
                 }
 
                 return (
-                  <div key={`empty-${globalIndex}`} className={`flex items-center justify-between p-1.5 sm:p-2 rounded-xl border transition-all duration-300 ${isBot ? 'bg-white border-indigo-100/80 shadow-2xs' : 'bg-slate-50/50 border-dashed border-slate-200/80 hover:border-indigo-200 group'}`}>
+                  <div key={`empty-${globalIndex}`} data-ai-slot={globalIndex} data-configured={isBot} className={`flex items-center justify-between p-1.5 sm:p-2 rounded-xl border transition-all duration-300 ${isBot ? 'bg-white border-indigo-100/80 shadow-2xs' : 'bg-slate-50/50 border-dashed border-slate-200/80 hover:border-indigo-200 group'}`}>
                     <div className="flex items-center gap-2">
                       <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center transition-all ${isBot ? 'bg-indigo-50 border border-indigo-100' : 'border border-dashed border-slate-200/80 bg-white group-hover:bg-indigo-50/50'}`}>
                         {isBot ? <Bot size={12} className="text-indigo-600" /> : <Users size={10} className="text-slate-300" />}
                       </div>
                       <div className="flex flex-col">
-                        <span className={`text-[10px] sm:text-[11px] font-black leading-tight ${isBot ? 'text-slate-800' : 'text-slate-400'}`}>{isBot ? '领主 AI' : '未占领席位'}</span>
+                        <span className={`text-[10px] sm:text-[11px] font-black leading-tight ${isBot ? 'text-slate-800' : 'text-slate-400'}`}>{isBot ? `领主 AI ${globalIndex + 1}` : '未占领席位'}</span>
                         {isBot && <span className="text-[6px] font-bold text-indigo-400 uppercase tracking-widest leading-none mt-0.5">高级AI</span>}
                       </div>
                     </div>
                     {isHostInLobby && (
                       <button 
-                        onClick={() => {
-                          const newConfig = [...botConfig, false, false, false, false, false, false, false, false, false].slice(0, 10);
-                          newConfig[globalIndex] = !newConfig[globalIndex];
-                          setBotConfig(newConfig);
-                          syncSettings({ botConfig: newConfig });
-                        }}
-                        className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded transition-all border ${isBot ? 'bg-red-50 text-red-500 border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-600 hover:text-white hover:border-indigo-600'}`}
+                        onClick={() => socketService.toggleBot(roomState.roomId, globalIndex)}
+                        disabled={!isBot && roomState.players.length + botConfig.filter(Boolean).length >= playerCount}
+                        title={!isBot && roomState.players.length + botConfig.filter(Boolean).length >= playerCount ? '配置人数已满' : undefined}
+                        className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${isBot ? 'bg-red-50 text-red-500 border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-600 hover:text-white hover:border-indigo-600'}`}
                       >
-                        {isBot ? '撤防' : '配置AI玩家'}
+                        {isBot ? '取消配置' : '配置AI玩家'}
                       </button>
                     )}
                   </div>
@@ -7010,11 +7025,12 @@ export default function App() {
       return point;
     }}>
       <>
-        {gameStarted && roomState ? <AssetGate onCancel={handleReturnToLobby} onReady={() => setShowSailingScreen(false)}>{mainContent}</AssetGate> : mainContent}
+        {gameStarted && roomState ? <AssetGate onCancel={handleReturnToLobby}>{mainContent}</AssetGate> : mainContent}
         {!roomState && !isJoinedLobby && exitToast}
-        {showSailingScreen && !(gameStarted && roomState) && (
+        {showSailingScreen && (
           <SailingLoadingScreen 
             key="sailing-loader" 
+            loop={!gameStarted}
             onComplete={() => {
               if (roomState) {
                 setShowSailingScreen(false);

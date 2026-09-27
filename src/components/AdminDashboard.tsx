@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail } from 'lucide-react';
 import { UserProfileModal } from './UserProfileModal';
 import { safeFetchJson } from '../fetchUtils';
-import { useBackHandler } from '../navigation';
+import { requestAppBack, useBackHandler } from '../navigation';
 
 export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' }) {
   const [data, setData] = useState<any>(null);
@@ -591,7 +591,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
         <span className="text-xs font-bold text-slate-500">共计 {(data?.allUsers || data?.latestUsers)?.length || 0} 位玩家</span>
       </div>
 
-      <div className="flex flex-col space-y-2 max-h-[500px] overflow-y-auto pr-1">
+      <div className="flex flex-col space-y-2 pr-1">
         {(data?.allUsers || data?.latestUsers)?.map((u: any) => {
           const isEditing = editingUsers[u._id] !== undefined;
           return (
@@ -771,13 +771,6 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
           {/* Header */}
           <div className="bg-white border-b border-slate-200/80 px-4 py-3 text-slate-800 flex items-center justify-between shrink-0 shadow-xs">
             <div className="flex items-center gap-3 min-w-0">
-              <button 
-                onClick={() => setSelectedChatPlayer(null)}
-                className="p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-600 hover:text-slate-900 shrink-0"
-                title="返回私信列表"
-              >
-                <ArrowLeft size={18} />
-              </button>
               <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-xs shrink-0">
                 {selectedChatPlayer.username.slice(0, 1).toUpperCase()}
               </div>
@@ -788,13 +781,14 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
               </div>
             </div>
 
-            <button 
+            <div className="flex items-center gap-1"><button
               onClick={() => fetchAdminMessages()}
               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               title="刷新私信记录"
             >
               <RotateCw size={14} className={adminMessagesLoading ? 'animate-spin' : ''} />
             </button>
+            <button onClick={requestAppBack} title="返回私信列表" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
           </div>
 
           {/* Messages Area */}
@@ -1015,7 +1009,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     </div>
   );
 
-  return (
+  const dashboard = (
     <div className={inline ? "space-y-4" : "absolute inset-0 bg-slate-50 z-50 overflow-y-auto"}>
       <div className={inline ? "" : "min-h-full max-w-4xl mx-auto flex flex-col font-sans relative pb-12"}>
         {loading && !data ? (
@@ -1036,10 +1030,11 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                   </div>
                 </div>
                 <button 
-                  onClick={onClose}
+                  onClick={requestAppBack}
+                  title="返回"
                   className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
                 >
-                  <X size={20} />
+                  <ArrowLeft size={20} />
                 </button>
               </div>
             )}
@@ -1049,7 +1044,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                 {activeSection === 'menu' ? (
                   <motion.div
                     key="menu"
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={inline ? false : { opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                   >
@@ -1058,20 +1053,13 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                 ) : (
                   <motion.div
                     key={activeSection}
-                    initial={{ opacity: 0, x: 20 }}
+                    initial={inline ? false : { opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -20 }}
-                    className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col space-y-4"
+                    className="p-4 sm:p-6 flex flex-col space-y-4 min-h-full"
                   >
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="sticky top-0 z-10 bg-slate-50 flex items-center justify-between border-b border-slate-100 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setActiveSection('menu')}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-full transition-colors flex items-center gap-1 font-bold text-xs"
-                          title="返回二级菜单"
-                        >
-                          <ArrowLeft size={18} />
-                        </button>
                         <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
                           {activeSection === 'system' && <><Sliders size={18} className="text-indigo-500" /> 系统设置</>}
                           {activeSection === 'users' && <><Users size={18} className="text-indigo-500" /> 玩家名单</>}
@@ -1080,7 +1068,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                         </h3>
                       </div>
 
-                      {activeSection === 'users' && (
+                      <div className="flex items-center gap-1">{activeSection === 'users' && (
                         <button onClick={fetchStats} className="text-indigo-500 hover:bg-indigo-50 px-2.5 py-1 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold">
                           <RotateCw size={13} className={loading ? 'animate-spin' : ''} /> 刷新
                         </button>
@@ -1095,6 +1083,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                           <RotateCw size={13} className={feedbacksLoading ? 'animate-spin' : ''} /> 刷新
                         </button>
                       )}
+                      <button onClick={requestAppBack} title="返回二级菜单" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
                     </div>
 
                     {activeSection === 'system' && renderSystemContent()}
@@ -1114,7 +1103,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
       {inspectingUser && (
         <UserProfileModal 
           currentUser={inspectingUser} 
-          onClose={() => window.history.back()} 
+          onClose={() => setInspectingUser(null)}
           fullScreen={true}
           disableHistory={true}
           onUpdateSuccess={(updatedUser) => {
@@ -1132,4 +1121,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
       )}
     </div>
   );
+  return inline && activeSection !== 'menu'
+    ? createPortal(<div className="app-screen app-safe-top bg-slate-50 z-[90000]" data-admin-section={activeSection} data-no-swipe><div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom,0px)]">{dashboard}</div></div>, document.body)
+    : dashboard;
 }
