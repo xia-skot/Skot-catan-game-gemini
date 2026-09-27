@@ -13,7 +13,7 @@ export default defineConfig({
   webServer: { command: 'node --import tsx server.ts --demo', url: 'http://127.0.0.1:5174/api/demo/session', reuseExistingServer: true },
   projects: [
     { name: 'desktop', use: { browserName: 'chromium', viewport: { width: 1280, height: 800 }, launchOptions: { executablePath: chromium } } },
-    { name: 'android', use: { ...devices['Pixel 7'], viewport: { width: 360, height: 800 }, launchOptions: { executablePath: chromium } } },
-    { name: 'iphone', use: { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } } },
+    { name: 'android', use: { ...devices['Pixel 7'], viewport: { width: 360, height: 814 }, launchOptions: { executablePath: chromium } } },
+    { name: 'iphone', use: { ...devices['iPhone 13'], viewport: { width: 393, height: 852 } } },
   ],
 });

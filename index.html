@@ -8,13 +8,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="卡坦岛" />
+    <meta name="theme-color" content="#f8fafc" />
     <link rel="apple-touch-icon" href="/assets/images/1daa842e0367792f.png" />
     <title>卡坦岛 - Catan Online</title>
   </head>
   <body class="notranslate bg-slate-50" translate="no">
     <div id="root">
-      <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #e0f2fe; color: #0284c7; font-family: sans-serif;">
-        <div style="font-weight: 900; font-size: 1.5rem; letter-spacing: 0.2em; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;">正在驶入海域......</div>
+      <div style="position: absolute; inset: 0; overflow: hidden; background-color: #e1f0fa; color: white; font-family: sans-serif;">
+        <svg style="position:absolute;inset:0;width:100%;height:100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><path d="M0 450 Q125 478 250 450 T500 450 T750 450 T1000 450 L1000 1000 L0 1000Z" fill="#52a3d9"/><path d="M0 450 Q125 478 250 450 T500 450 T750 450 T1000 450" stroke="#87c2df" stroke-width="5" fill="none"/></svg>
+        <div role="status" style="position:absolute;bottom:60px;width:100%;text-align:center;font-size:14px;">正在启动卡坦岛…</div>
       </div>
       <style>
         @keyframes pulse {

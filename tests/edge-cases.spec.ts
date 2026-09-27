@@ -3,19 +3,29 @@ import manifest from '../src/assetManifest.json' with { type: 'json' };
 
 test.beforeEach(async ({ request }) => { await request.post('/api/demo/reset'); });
 
-test('failed texture blocks the board until retry succeeds', async ({ page }) => {
+test('failed texture blocks startup before the boat and only retries the missing asset', async ({ page }, info) => {
   const missing = Object.values(manifest.images).find(src => src.endsWith('.jpg'))!;
   await page.route('**' + missing, route => route.fulfill({ status: 503, contentType: 'text/plain', body: 'offline' }));
   await page.goto('/');
+  await expect(page.getByRole('button', { name: '重试未完成资源', exact: true })).toBeVisible();
+  await expect(page.locator('[data-lobby-tabs]')).toHaveCount(0);
+  await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'failed');
+  await expect(page.locator('.startup-boat')).toHaveCount(0);
+  expect(Number(await page.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(100);
+  await expect(page.locator('canvas')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('ocean-loading.png') });
+  await page.unroute('**' + missing);
+  const requests: string[] = [];
+  page.on('request', request => { if (request.url().includes('/assets/images/')) requests.push(request.url()); });
+  await page.getByRole('button', { name: '重试未完成资源', exact: true }).click();
+  await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'sailing');
+  await expect(page.locator('[data-lobby-tabs]')).toBeVisible();
+  expect(requests).toHaveLength(1);
   await page.getByRole('button', { name: '进入海域', exact: true }).click();
   await page.getByRole('button', { name: '就绪', exact: true }).click();
   await page.getByRole('button', { name: '开启游戏', exact: true }).click();
-  await expect(page.getByRole('button', { name: '重试', exact: true })).toBeVisible();
-  await expect(page.locator('canvas')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '返回大厅', exact: true })).toBeVisible();
-  await page.unroute('**' + missing);
-  await page.getByRole('button', { name: '重试', exact: true }).click();
   await expect(page.locator('canvas').first()).toBeVisible();
+  expect(requests).toHaveLength(1);
   expect(await page.evaluate(async () => (await import('/src/' + 'assetPreloader.ts')).checkIsAssetsCached())).toBe(true);
 });
 
@@ -67,6 +77,7 @@ test('rules depth, safe areas and chat keyboard do not move the lobby', async ({
   const nav = page.locator('.lobby-tab-bar');
   await nav.getByRole('button', { name: '规则', exact: true }).click();
   await page.getByRole('button', { name: '资源板块', exact: true }).click();
+  await expect(nav).toBeHidden();
   await page.evaluate(() => history.back());
   await expect(page.getByRole('button', { name: '资源板块', exact: true })).toBeVisible();
   await page.evaluate(() => {

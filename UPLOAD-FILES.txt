@@ -55,11 +55,13 @@ src/assetManifest.json
 src/assetPreloader.ts
 src/audioService.ts
 src/components/AssetGate.tsx
+src/components/AdminDashboard.tsx
 src/components/GoldSelectionPanel.tsx
 src/components/LoginScreen.tsx
 src/components/ResourceSelector.tsx
 src/components/RulesModal.tsx
 src/components/SmartImage.tsx
+src/components/StartupScreen.tsx
 src/components/SoundSettingsModal.tsx
 src/components/UserProfileModal.tsx
 src/demo/bootstrap.ts
@@ -75,4 +77,5 @@ tests/edge-cases.spec.ts
 tests/messages.spec.ts
 tests/mobile.spec.ts
 tests/production.spec.ts
+tests/startup-navigation.spec.ts
 vite.config.ts

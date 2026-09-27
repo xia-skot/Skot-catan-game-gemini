@@ -7,8 +7,17 @@ type ProgressCallback = (progressPercent: number, label: string) => void;
 export type PreloadResult = { ready: boolean; loaded: string[]; failed: string[] };
 type PreloadOptions = { includeAudio?: boolean; signal?: AbortSignal };
 let activePreload: Promise<PreloadResult> | null = null;
-const listeners = new Set<ProgressCallback>();
+const listeners = new Set<{ callback: ProgressCallback; audio: boolean }>();
 let resetTask: Promise<void> | null = null;
+
+function notify() {
+  const images = ALL_GAME_IMAGES.filter(src => getCachedImageElement(src)).length;
+  listeners.forEach(({ callback, audio }) => {
+    const total = ALL_GAME_IMAGES.length + (audio ? 6 : 0);
+    const loaded = images + (audio ? audioService.getLoadedAudioUrls().length : 0);
+    try { callback(Math.floor(loaded / total * 100), `资源加载中（${loaded}/${total}）`); } catch {}
+  });
+}
 
 export const checkIsAssetsCached = () => ALL_GAME_IMAGES.every(src => !!getCachedImageElement(src));
 export const shouldShowAssetLoadingScreen = () => !checkIsAssetsCached();
@@ -21,15 +30,10 @@ export async function clearAssetsCache(): Promise<void> {
 }
 
 export function preloadAllAssets(onProgress?: ProgressCallback, options: PreloadOptions = {}): Promise<PreloadResult> {
-  if (onProgress && !options.signal?.aborted) listeners.add(onProgress);
-  const unsubscribe = () => { if (onProgress) listeners.delete(onProgress); };
+  const listener = onProgress ? { callback: onProgress, audio: !!options.includeAudio } : null;
+  if (listener && !options.signal?.aborted) listeners.add(listener);
+  const unsubscribe = () => { if (listener) listeners.delete(listener); };
   options.signal?.addEventListener('abort', unsubscribe, { once: true });
-  const notify = () => {
-    const loaded = ALL_GAME_IMAGES.filter(src => getCachedImageElement(src)).length;
-    const percent = Math.floor(loaded / ALL_GAME_IMAGES.length * 100);
-    const label = loaded === ALL_GAME_IMAGES.length ? '贴图已就绪' : `正在补齐贴图（${loaded}/${ALL_GAME_IMAGES.length}）`;
-    listeners.forEach(fn => { try { fn(percent, label); } catch {} });
-  };
   if (!activePreload) {
     if (isResetCacheRequested() && !resetTask) {
       clearImageCache();
@@ -48,9 +52,13 @@ export function preloadAllAssets(onProgress?: ProgressCallback, options: Preload
     })().finally(() => { activePreload = null; });
   }
   notify();
-  const audio = audioService.preloadAllAudio();
-  const result = options.includeAudio ? activePreload.then(async result => { await audio; return result; }) : activePreload;
-  void audio.catch(() => {});
+  const result = activePreload.then(async images => {
+    const audio = audioService.preloadAllAudio(notify);
+    if (!options.includeAudio) { void audio.catch(() => {}); return images; }
+    const sounds = await audio;
+    notify();
+    return { ready: images.ready && sounds.failed.length === 0, loaded: [...images.loaded, ...sounds.loaded], failed: [...images.failed, ...sounds.failed] };
+  });
   return result.finally(() => {
     unsubscribe();
     options.signal?.removeEventListener('abort', unsubscribe);

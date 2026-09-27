@@ -48,13 +48,9 @@ function decodeImage(blob: Blob): Promise<HTMLImageElement> {
       else resolve(image);
     };
     const timer = setTimeout(() => finish(new Error('Image decode timed out')), 8000);
-    image.onload = async () => {
-      try {
-        if (image.decode) await image.decode();
-        if (!image.naturalWidth) throw new Error('Empty image');
-        finish();
-      } catch { finish(new Error('Image decode failed')); }
-    };
+    // A successful load with dimensions is usable by both DOM and canvas.
+    // Some mobile engines leave decode() pending even after onload.
+    image.onload = () => finish(image.naturalWidth > 0 ? undefined : new Error('Empty image'));
     image.onerror = () => finish(new Error('Invalid image data'));
     image.src = url;
   });

@@ -175,6 +175,7 @@ import { GameOverModal } from './components/GameOverModal';
 import { motion, AnimatePresence, useDragControls, MotionConfig } from 'motion/react';
 import { audioService } from './audioService';
 import { preloadAllAssets, shouldShowAssetLoadingScreen } from './assetPreloader';
+import { StartupScreen } from './components/StartupScreen';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
 import { useLobbySwipe } from './useLobbySwipe';
@@ -628,11 +629,6 @@ export default function App() {
   const [devCardOverlay, setDevCardOverlay] = useState<{ playerName: string, actionStr: string } | null>(null);
   const [confirmDevCard, setConfirmDevCard] = useState<DevCardType | null>(null);
   
-  useEffect(() => {
-    // Preload all game textures and audio into browser cache
-    preloadAllAssets().catch(err => console.warn('[App] Preload error:', err));
-
-  }, []);
   
   const { 
     gameState, 
@@ -2405,12 +2401,42 @@ export default function App() {
       return false;
     };
 
-    let lastEdgeBack = 0;
-    const handlePopState = () => {
-      if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
-      if (performance.now() - lastEdgeBack > 400) performAppBackAction();
+    let lastEdgeBack = -Infinity;
+    let exitArmedAt = -Infinity;
+    let leaving = false;
+    let exitRecoveryTimer: ReturnType<typeof setTimeout>;
+    const handleBack = (fromPop = false) => {
+      if (leaving) return;
+      if (performAppBackAction()) {
+        exitArmedAt = -Infinity;
+        setShowBackInterceptToast(false);
+      } else if (performance.now() - exitArmedAt < 2200) {
+        leaving = true;
+        setShowBackInterceptToast(false);
+        // A pop has already consumed the app sentinel. Never push it again on exit.
+        window.history.go(fromPop ? -1 : -2);
+        // An installed app may have no previous document to return to.
+        // Do not leave its in-app navigation permanently disabled in that case.
+        exitRecoveryTimer = setTimeout(() => {
+          leaving = false;
+          exitArmedAt = -Infinity;
+          if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+        }, 700);
+        return;
+      } else {
+        exitArmedAt = performance.now();
+        setShowBackInterceptToast(true);
+        if (backToastTimeoutRef.current) clearTimeout(backToastTimeoutRef.current);
+        backToastTimeoutRef.current = setTimeout(() => setShowBackInterceptToast(false), 2200);
+      }
+      if (fromPop && !window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
     };
-    const appBack = () => { performAppBackAction(); };
+    const handlePopState = () => {
+      if (leaving) return;
+      if (performance.now() - lastEdgeBack > 400) handleBack(true);
+      else if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+    };
+    const appBack = () => { handleBack(); };
     const suppressClick = (event: MouseEvent) => {
       if (shouldSuppressGestureClick()) { event.preventDefault(); event.stopImmediatePropagation(); }
     };
@@ -2421,7 +2447,7 @@ export default function App() {
       if (event.touches.length !== 1) return;
       const target = event.target as HTMLElement;
       if (target.closest('input,textarea,select,button,[role="slider"],[data-no-back],canvas')) return;
-      const canGoBack = hasBackHandler() || !gameStartedRef.current && (activeLobbyTabRef.current !== 'lobby' || isJoinedLobbyRef.current || !!roomStateRef.current);
+      const canGoBack = hasBackHandler() || !gameStartedRef.current;
       const touch = event.touches[0];
       if (!canGoBack || touch.clientX > 32) return;
       edge = { x: touch.clientX, y: touch.clientY, id: touch.identifier, horizontal: false, cancelled: false };
@@ -2447,7 +2473,7 @@ export default function App() {
       if (touch && touch.clientX - gesture.x >= 48 && Math.abs(touch.clientY - gesture.y) < 60) {
         lastEdgeBack = performance.now();
         suppressGestureClick();
-        performAppBackAction();
+        handleBack();
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -2458,6 +2484,7 @@ export default function App() {
     window.addEventListener('touchend', handleTouchEnd);
     window.addEventListener('touchcancel', cancelEdge);
     return () => {
+      clearTimeout(exitRecoveryTimer);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('catan:back', appBack);
       window.removeEventListener('click', suppressClick, true);
@@ -3553,22 +3580,13 @@ export default function App() {
     padding: 0
   };
 
-  if (isAuthLoading) {
-    return (
-      <SailingLoadingScreen 
-        key="auth-loading-sailing" 
-        onComplete={() => {
-          if (!isAuthLoading) setIsAuthAnimFinished(true);
-        }} 
-        text="正在驶入海域......" 
-        loop={isAuthLoading}
-        loadAssets={false}
-      />
-    );
+  const exitToast = showBackInterceptToast ? <div role="status" className="exit-toast">再按一次返回键退出卡坦岛</div> : null;
+  if (!isAuthAnimFinished) {
+    return <><StartupScreen waitingForAccount={isAuthLoading} onComplete={() => setIsAuthAnimFinished(true)} />{exitToast}</>;
   }
 
   if (!currentUser) {
-    return <LoginScreen onLoginSuccess={user => setCurrentUser(user)} />;
+    return <><LoginScreen onLoginSuccess={user => setCurrentUser(user)} />{exitToast}</>;
   }
 
   const actingPlayer = gameState?.players ? gameState.players[activePlayerId] : undefined;
@@ -3687,6 +3705,7 @@ export default function App() {
         onTouchEnd={lobbySwipe.onTouchEnd}
         onTouchCancel={lobbySwipe.onTouchCancel}
         data-lobby-tabs={activeLobbyTab}
+        data-subpage={(activeLobbyTab === 'profile' && profileActiveView !== 'menu') || (activeLobbyTab === 'rules' && rulesActiveView !== 'menu') ? 'true' : undefined}
         style={{ touchAction: 'pan-y' }}
         className="flex flex-col h-full w-full bg-slate-50 font-sans relative overflow-hidden text-slate-900"
       >
@@ -3862,7 +3881,7 @@ export default function App() {
           </div>
         </div>
         {/* Bottom Tab Bar */}
-        <div className="lobby-tab-bar shrink-0 w-full bg-white border-t border-slate-100 pt-1.5 px-6 flex justify-center gap-10 sm:gap-16 z-50">
+        <div hidden={(activeLobbyTab === 'profile' && profileActiveView !== 'menu') || (activeLobbyTab === 'rules' && rulesActiveView !== 'menu')} className="lobby-tab-bar shrink-0 w-full bg-white border-t border-slate-100 pt-1.5 px-6 flex justify-center gap-10 sm:gap-16 z-50">
            <button
              onClick={() => setActiveLobbyTab('lobby')}
              className={`flex flex-col items-center gap-0 transition-all ${activeLobbyTab === 'lobby' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
@@ -6992,6 +7011,7 @@ export default function App() {
     }}>
       <>
         {gameStarted && roomState ? <AssetGate onCancel={handleReturnToLobby} onReady={() => setShowSailingScreen(false)}>{mainContent}</AssetGate> : mainContent}
+        {!roomState && !isJoinedLobby && exitToast}
         {showSailingScreen && !(gameStarted && roomState) && (
           <SailingLoadingScreen 
             key="sailing-loader" 

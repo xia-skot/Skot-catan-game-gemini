@@ -3,6 +3,8 @@ import manifest from './assetManifest.json';
 const CACHE_PREFIX = 'catan-media-';
 const CACHE_NAME = `${CACHE_PREFIX}${manifest.version}`;
 let cachePromise: Promise<Cache | null> | undefined;
+const blobs = new Map<string, Blob>();
+const requests = new Map<string, Promise<Blob>>();
 
 async function mediaCache(): Promise<Cache | null> {
   if (!cachePromise) {
@@ -18,16 +20,18 @@ async function mediaCache(): Promise<Cache | null> {
 }
 
 export async function discardCachedAsset(src: string): Promise<void> {
+  blobs.delete(src);
   const cache = await mediaCache();
   await cache?.delete(src).catch(() => false);
 }
 
 export async function clearMediaCache(): Promise<void> {
+  blobs.clear();
   const cache = await mediaCache();
   if (cache) await Promise.all((await cache.keys()).map(key => cache.delete(key)));
 }
 
-export async function loadAssetBlob(src: string, mediaType: 'image' | 'audio', reload = false): Promise<Blob> {
+async function readAssetBlob(src: string, mediaType: 'image' | 'audio', reload = false): Promise<Blob> {
   const cache = await mediaCache();
   if (!reload && cache) {
     const cached = await cache.match(src).catch(() => undefined);
@@ -53,4 +57,15 @@ export async function loadAssetBlob(src: string, mediaType: 'image' | 'audio', r
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function loadAssetBlob(src: string, mediaType: 'image' | 'audio', reload = false): Promise<Blob> {
+  if (!reload && blobs.has(src)) return Promise.resolve(blobs.get(src)!);
+  if (requests.has(src)) return requests.get(src)!;
+  const request = readAssetBlob(src, mediaType, reload).then(blob => {
+    blobs.set(src, blob);
+    return blob;
+  }).finally(() => { if (requests.get(src) === request) requests.delete(src); });
+  requests.set(src, request);
+  return request;
 }

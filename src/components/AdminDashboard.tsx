@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail } from 'lucide-react';
 import { UserProfileModal } from './UserProfileModal';
 import { safeFetchJson } from '../fetchUtils';
+import { useBackHandler } from '../navigation';
 
 export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' }) {
   const [data, setData] = useState<any>(null);
@@ -28,6 +29,15 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   const [adminReplyText, setAdminReplyText] = useState('');
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
   const adminChatEndRef = React.useRef<HTMLDivElement>(null);
+
+  useBackHandler(!!confirmDeleteId || !!inspectingUser || !!selectedChatPlayer || activeSection !== 'menu' || !inline, () => {
+    if (confirmDeleteId) setConfirmDeleteId(null);
+    else if (inspectingUser) setInspectingUser(null);
+    else if (selectedChatPlayer) setSelectedChatPlayer(null);
+    else if (activeSection !== 'menu') setActiveSection('menu');
+    else onClose();
+    return true;
+  }, 40);
 
   const fetchAdminMessages = async () => {
     setAdminMessagesLoading(true);
@@ -354,35 +364,6 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     fetchAbout();
     fetchFeedbackPrompt();
   }, []);
-
-  const isPopStateRef = React.useRef(false);
-
-  useEffect(() => {
-    if (isPopStateRef.current) {
-      isPopStateRef.current = false;
-      return;
-    }
-    const state = { adminOpen: true, section: activeSection, inspecting: !!inspectingUser, time: Date.now() };
-    window.history.pushState(state, '');
-  }, [inspectingUser, activeSection]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      isPopStateRef.current = true;
-      if (inspectingUser) {
-        setInspectingUser(null);
-      } else if (activeSection !== 'menu') {
-        setActiveSection('menu');
-      } else {
-        onClose();
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [inspectingUser, activeSection, onClose]);
 
   const handleDeleteUser = async (userId: string) => {
     setConfirmDeleteId(null);

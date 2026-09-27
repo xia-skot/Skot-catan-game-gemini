@@ -40,12 +40,14 @@ export class AudioService {
   private _bgmVolume = clamp(Number(read('catan_bgm_volume') ?? 0.45), 0.45);
   private _sfxEqualizer = { ...DEFAULT_EQUALIZER };
   private _tempMuteSfx = false;
+  private warmed = new Set<string>();
+  private warmTask: Promise<{ loaded: string[]; failed: string[] }> | null = null;
 
   constructor() {
     try { this.applyEqualizer(JSON.parse(read('catan_sfx_equalizer') || '{}')); } catch {}
     this.bgm = new Audio(audioUrls.bgm);
     this.bgm.loop = true;
-    this.bgm.preload = 'auto';
+    this.bgm.preload = 'none';
     this.bgm.volume = this.volumeFor('bgm');
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -87,18 +89,25 @@ export class AudioService {
     if (this.pending.has(type)) return this.pending.get(type)!;
     const context = this.getContext();
     if (!context) {
-      if (!this.fallback.has(type)) {
-        const audio = new Audio(audioUrls[type]);
+      if (this.fallback.has(type)) return Promise.resolve();
+      const promise = loadAssetBlob(audioUrls[type], 'audio').then(blob => {
+        const audio = new Audio(URL.createObjectURL(blob));
         audio.preload = 'auto';
         this.fallback.set(type, audio);
-      }
-      return Promise.resolve();
+      }).finally(() => { this.pending.delete(type); });
+      this.pending.set(type, promise);
+      return promise;
     }
     const promise = (async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const blob = await loadAssetBlob(audioUrls[type], 'audio', attempt > 0);
-          const buffer = await context.decodeAudioData(await blob.arrayBuffer());
+          const data = await blob.arrayBuffer();
+          let timer: ReturnType<typeof setTimeout>;
+          const buffer = await Promise.race([
+            context.decodeAudioData(data),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Audio decode timed out')), 8000); }),
+          ]).finally(() => clearTimeout(timer));
           this.buffers.set(type, buffer);
           return;
         } catch (error) {
@@ -111,10 +120,29 @@ export class AudioService {
     return promise;
   }
 
-  async preloadAllAudio(onProgress?: (loaded: number, total: number) => void): Promise<void> {
-    let loaded = 0;
-    await Promise.allSettled(sfxTypes.map(type => this.prepare(type).finally(() => onProgress?.(++loaded, 6))));
-    onProgress?.(6, 6);
+  getLoadedAudioUrls(): string[] { return [...this.warmed]; }
+
+  preloadAllAudio(onProgress?: (loaded: number, total: number) => void): Promise<{ loaded: string[]; failed: string[] }> {
+    if (!this.warmTask) {
+      this.warmTask = (async () => {
+        const types = Object.keys(audioUrls) as SoundType[];
+        // Keep startup network use bounded, and cache BGM even on mobile browsers
+        // which ignore the audio element's preload attribute until a gesture.
+        for (let index = 0; index < types.length; index += 3) {
+          await Promise.allSettled(types.slice(index, index + 3).map(async type => {
+            if (this.warmed.has(audioUrls[type])) return;
+            const blob = await loadAssetBlob(audioUrls[type], 'audio');
+            if (type === 'bgm') {
+              if (!this.bgmUnlocked && !this.bgmWanted) this.bgm.src = URL.createObjectURL(blob);
+            } else await this.prepare(type);
+            this.warmed.add(audioUrls[type]);
+            onProgress?.(this.warmed.size, 6);
+          }));
+        }
+        return { loaded: [...this.warmed], failed: Object.values(audioUrls).filter(src => !this.warmed.has(src)) };
+      })().finally(() => { this.warmTask = null; });
+    }
+    return this.warmTask;
   }
 
   async unlockAll(): Promise<boolean> {
@@ -122,7 +150,7 @@ export class AudioService {
     const context = this.getContext();
     // Calling resume during the gesture is important; never await a download first.
     const resume = context && context.state !== 'running' ? context.resume() : Promise.resolve();
-    if (this._enabled && !this.bgmUnlocked && !this.bgmUnlocking) {
+    if (this._enabled && this.warmed.has(audioUrls.bgm) && !this.bgmUnlocked && !this.bgmUnlocking) {
       this.bgmUnlocking = true;
       this.bgm.muted = true;
       void this.bgm.play().then(() => {

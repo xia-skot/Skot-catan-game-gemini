@@ -1327,10 +1327,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                     {systemUnreadCount > 0 && (
                       <button 
                         onClick={() => {
-                          const newMessages = messages.map(m => (m.type !== 'private' && !m.targetUserId) ? { ...m, read: true } : m);
-                          setMessages(newMessages);
-                          const readMsgs = newMessages.filter(m => m.read).map(m => m.id);
-                          localStorage.setItem('catan_read_messages', JSON.stringify(readMsgs));
+                          markMessagesAsRead(systemMsgs.filter(m => !m.read).map(m => m.id));
                         }}
                         className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all flex items-center gap-1 text-xs font-bold"
                         title="标记系统消息为已读"

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Monitor, Smartphone, RotateCw, RefreshCw, Eraser, ExternalLink } from 'lucide-react';
 import './preview.css';
 
-const devices = [{ name: '电脑', width: 1280, height: 800 }, { name: '安卓 / 华为', width: 360, height: 800 }, { name: 'iPhone', width: 390, height: 844 }];
+const devices = [{ name: '电脑', width: 1280, height: 800 }, { name: '安卓 / 华为', width: 360, height: 814 }, { name: 'iPhone', width: 393, height: 852 }];
 function Preview() {
   const [device, setDevice] = useState(2);
   const [landscape, setLandscape] = useState(false);
