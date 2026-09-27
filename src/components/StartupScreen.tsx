@@ -35,7 +35,7 @@ export function StartupScreen({ waitingForAccount, onComplete }: { waitingForAcc
 
   return <div className="app-screen startup-ocean" data-startup={sailing ? 'sailing' : failed ? 'failed' : 'loading'}>
     <SailingScene sailing={sailing} onComplete={() => callback.current()} />
-    <div className="startup-progress">
+    <div className={`startup-progress${sailing || !showProgress ? ' is-sailing' : ''}`}>
       {sailing ? <p>正在驶入海域<LoadingDots /></p> : showProgress ? <>
         <p role="status">{failed ? `还有 ${failed} 项资源未加载成功` : ready ? '资源已就绪，正在连接账号…' : label}</p>
         <div className="startup-meter" role="progressbar" aria-label="资源加载" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>

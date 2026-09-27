@@ -209,8 +209,6 @@ import {
   Copy,
   LogOut,
   Trash2,
-  Maximize,
-  Minimize,
   RotateCw,
   RotateCcw,
   RefreshCw,
@@ -1891,7 +1889,6 @@ export default function App() {
   const logoStartTimeRef = useRef<number>(0);
 
   const [showGameOver, setShowGameOver] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showDissolveRoomConfirm, setShowDissolveRoomConfirm] = useState(false);
   const [showExitOptions, setShowExitOptions] = useState(false);
   const [showReserveRoomModal, setShowReserveRoomModal] = useState(false);
@@ -1969,32 +1966,6 @@ export default function App() {
       }
     });
   }, [isJoinedLobby, roomState?.roomId, inputRoomId, playerName, isAuthLoading, currentUser]);
-
-  const toggleFullscreen = useCallback(() => {
-    if (isInstalledDisplay()) return;
-    if (!document.fullscreenElement) {
-      const elem = document.documentElement as any;
-      const request = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
-      if (request) {
-        Promise.resolve(request.call(elem)).catch(() => {});
-      }
-    } else {
-      const exit = document.exitFullscreen || (document as any).webkitExitFullscreen || (document as any).mozCancelFullScreen || (document as any).msExitFullscreen;
-      if (exit) {
-        exit.call(document);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-    };
-  }, []);
 
   const [isInitializingGame, setIsInitializingGame] = useState(false);
   const [playerCount, setPlayerCount] = useState(4);
@@ -2392,9 +2363,15 @@ export default function App() {
     let exitArmedAt = -Infinity;
     let leaving = false;
     let releasingGuard = false;
+    let restoringGuard = false;
     let exitRecoveryTimer: ReturnType<typeof setTimeout>;
     const restoreGuard = () => {
-      if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+      if (!window.history.state?.catanApp && !restoringGuard) {
+        // Reuse the existing entry. pushState after Back makes Chromium mark
+        // every same-document entry skippable until the next real interaction.
+        restoringGuard = true;
+        window.history.forward();
+      }
     };
     const handleBack = (fromPop = false) => {
       if (leaving) return;
@@ -2433,12 +2410,13 @@ export default function App() {
       }
     };
     const handlePopState = () => {
+      if (restoringGuard && window.history.state?.catanApp) { restoringGuard = false; return; }
       if (releasingGuard) { releasingGuard = false; return; }
       if (leaving) return;
       if (performance.now() - lastEdgeBack > 400) handleBack(true);
       else {
         lastEdgeBack = -Infinity;
-        if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+        restoreGuard();
       }
     };
     const appBack = () => { handleBack(); };
@@ -3745,9 +3723,6 @@ export default function App() {
         >
           {/* Tab 1: lobby */}
           <div inert={activeLobbyTab !== 'lobby'} aria-hidden={activeLobbyTab !== 'lobby'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
-            {!isStandalone && document.fullscreenEnabled && <button onClick={toggleFullscreen} title={isFullscreen ? '退出全屏' : '全屏'} aria-label={isFullscreen ? '退出全屏' : '全屏'} className="absolute top-3 right-3 z-30 p-2 rounded-lg text-slate-500 hover:bg-white">
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>}
             <motion.div 
               initial={{ opacity: 0, y: 10 }} 
               animate={{ opacity: 1, y: 0 }}
@@ -5497,10 +5472,9 @@ export default function App() {
                       size={isMobile ? 24 : 44}
                     />
                   </div>
-                  <div className="flex items-center justify-center text-center">
+                  <div data-dice-result className="dice-result" style={{ fontSize: `${(isMobile ? 24 : 44) * 0.8}px` }}>
                     <p 
-                      className={`font-serif font-black italic leading-none text-orange-500 transition-all ${isDiceRolling ? 'animate-pulse scale-90 opacity-60' : ''}`}
-                      style={{ fontSize: `${(isMobile ? 24 : 44) * 0.8}px` }}
+                      className={`text-orange-500 ${isDiceRolling ? 'animate-pulse opacity-60' : ''}`}
                     >
                       {diceSum}
                     </p>
@@ -7173,6 +7147,7 @@ function MapPreview({ board, isTopologyOnly = false, isLogo = false }: { board: 
                       text={hex.number.toString()}
                       fontSize={14}
                       fontStyle="bold"
+                      fontFamily="Times New Roman, Times, serif"
                       fill={hex.number === 6 || hex.number === 8 ? '#d32f2f' : '#333'}
                       offsetX={hex.number > 9 ? 8 : 4}
                       offsetY={6}
@@ -7389,11 +7364,16 @@ function HexCell({ hex, isSelected, isRobber, isPirate, onClick }: { hex: any, i
           <Text
             text={hex.number.toString()}
             fontSize={12}
-            fontStyle="900"
+            name="hex-number"
+            fontStyle="bold"
             fill={hex.number === 6 || hex.number === 8 ? '#E74C3C' : '#1a1a1a'}
-            offsetX={hex.number > 9 ? 7 : 3.5}
-            offsetY={6}
-            fontFamily="Inter"
+            width={24}
+            height={16}
+            offsetX={12}
+            offsetY={8}
+            align="center"
+            verticalAlign="middle"
+            fontFamily="Times New Roman, Times, serif"
           />
           <ProbabilityDots value={hex.number} />
         </Group>

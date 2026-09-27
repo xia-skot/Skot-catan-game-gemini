@@ -45,6 +45,7 @@ public/assets/images/ba5cd74d428aff17.png
 public/assets/images/f00f01f3ed04988e.png
 public/assets/images/fd454c0184d15e17.jpg
 public/manifest.json
+public/icons/catan-launch-v4.png
 scripts/sync-assets.mjs
 scripts/sync-assets.ps1
 server.ts
@@ -82,6 +83,7 @@ tests/edge-cases.spec.ts
 tests/messages.spec.ts
 tests/mobile.spec.ts
 tests/mobile-v3.spec.ts
+tests/mobile-v4.spec.ts
 tests/production.spec.ts
 tests/startup-navigation.spec.ts
 vite.config.ts

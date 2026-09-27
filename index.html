@@ -9,16 +9,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="卡坦岛" />
     <meta name="theme-color" content="#f8fafc" />
-    <link rel="apple-touch-icon" href="/assets/images/1daa842e0367792f.png" />
+    <link rel="apple-touch-icon" href="/icons/catan-launch-v4.png" />
     <title>卡坦岛 - Catan Online</title>
   </head>
   <body class="notranslate bg-slate-50" translate="no">
     <div id="root">
       <div style="position: absolute; inset: 0; overflow: hidden; background-color: #e1f0fa; color: white; font-family: sans-serif;">
         <svg style="position:absolute;inset:0;width:100%;height:100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><path d="M0 450 Q125 478 250 450 T500 450 T750 450 T1000 450 L1000 1000 L0 1000Z" fill="#52a3d9"/><path d="M0 450 Q125 478 250 450 T500 450 T750 450 T1000 450" stroke="#87c2df" stroke-width="5" fill="none"/></svg>
-        <div role="status" style="position:absolute;bottom:60px;width:100%;text-align:center;font-size:14px;">正在驶入海域<span class="boot-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></div>
+        <div role="status" class="boot-caption">正在驶入海域<span class="boot-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></div>
       </div>
       <style>
+        .boot-caption { position: absolute; top: 78%; width: 100%; text-align: center; font-size: 20px; font-weight: 900; font-style: italic; color: #0c4a6e; text-shadow: 0 2px 4px rgba(255,255,255,.8); }
+        @media (min-width: 640px) { .boot-caption { top: 80%; font-size: 24px; } }
         .boot-dots span { animation: boot-dot 1.2s infinite; }
         .boot-dots span:nth-child(2) { animation-delay: .2s; }
         .boot-dots span:nth-child(3) { animation-delay: .4s; }

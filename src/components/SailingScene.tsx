@@ -60,6 +60,6 @@ export function SailingScene({ sailing = true, loop = false, onComplete }: { sai
 export function SailingTransition({ text, loop = false, onComplete }: { text: string; loop?: boolean; onComplete: () => void }) {
   return <div className="app-screen startup-ocean" data-game-sailing>
     <SailingScene loop={loop} onComplete={onComplete} />
-    <div className="startup-progress"><p role="status">{text.replace(/[.\u2026]+$/, '')}<LoadingDots /></p></div>
+    <div className="startup-progress is-sailing"><p role="status">{text.replace(/[.\u2026]+$/, '')}<LoadingDots /></p></div>
   </div>;
 }

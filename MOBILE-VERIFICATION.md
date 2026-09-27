@@ -1,5 +1,29 @@
 # 移动端修复验证记录
 
+## 第四轮验证（2026-09-27）
+
+仅在本地演示与测试夹具上执行，未操作线上账号、GitHub 或 Render。
+
+- 类型检查通过：`tsc --noEmit`。
+- 正式构建通过：Vite 6.4.2，入口 `index-zeEjWzVe.js`，1,159.03 kB / gzip 330.18 kB；CSS 102.70 kB。仍有原有的大包警告。
+- 主回归：`mobile-v3.spec.ts`、`mobile-v4.spec.ts`、`startup-navigation.spec.ts`，60 项：54 通过、4 跳过、2 失败，11.0 分钟。两项失败是电脑和安卓的快速 AI 测试仅延迟 room_state、未延迟 game_init，人为打乱了 Socket.IO 保证的事件顺序。修正夹具为所有事件统一延迟 180ms，未修改产品联机代码。
+- 修正后补测：三设备各运行快速 AI、棋盘字体与骰子、20 次菜单返回、一级滑动隔离，12 项全部通过，4.5 分钟。与主回归重叠 6 项，因此本轮不同用例最终合计 62 项通过、4 项重复纯逻辑/服务端检查跳过。没有把第三轮其他测试算作本轮复测。
+- 设备：桌面 Chromium 1280×800、安卓/华为尺寸 Chromium 360×814、iPhone 尺寸 Windows WebKit 393×852。
+
+新增验证：
+
+1. 最后一次点击进入私信后，不再点击页面，连续返回到列表、我的，再重复三次首页提示与 1250ms 超时；期间 pushState 调用为零，最后一秒内第二次返回可离开到测试前页。
+2. 文字粗斜体、深蓝颜色、78%/80% 位置及启动截图；主界面全屏按钮不存在。
+3. 安装图标可解码，实际 1254×1254 与 manifest 声明相符。
+4. 棋盘数字在拖动开始、缓存、结束时均使用同一 Times 字体定义；动画结束后骰子总点数 12 完整显示，容器无文字溢出。已目视检查三设备截图，iPhone 最终截图在 `test-results/mobile-v4-board-number-fon-b4456-g-caching-dice-sum-has-room-iphone/board-dice-v4.png`。
+5. 原有私信和管理层级返回、系统已读、启动失败重试、帆船与重返动画、发展卡图、地图缩放继续通过。
+
+重要限制：历史返回自动检查使用 history.back，不能模拟华为真实系统返回。曾试用鼠标侧键模拟，但它会产生新的用户交互，不能证明“没有点击仍可连续返回”，因此不把它列为该问题的验证证据。修复依据 Chromium 官方规则：返回后新建同页历史记录可能使其被系统后退跳过，本轮改为前进到已有记录，不再重建。实际主屏幕启动、系统退出和 iPhone 字体实机渲染仍需用户复核。
+
+参考：[Chromium 历史干预规则](https://chromium.googlesource.com/chromium/src/+/main/docs/history_manipulation_intervention.md)、[Socket.IO 事件顺序](https://socket.io/docs/v4/delivery-guarantees/)、[系统启动页](https://developer.chrome.com/docs/lighthouse/pwa/splash-screen)。
+
+## 第三轮历史记录
+
 日期：2026-09-27，第三轮修复。功能回归使用本地模拟数据，管理员页面使用本地测试数据；本轮未重新核验线上站点。未连接线上数据库，未上传 GitHub，未部署 Render。
 
 ## 结果

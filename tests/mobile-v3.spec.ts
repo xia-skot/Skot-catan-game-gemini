@@ -39,7 +39,7 @@ test('all primary pages warn on first back and use a one-second exit window', as
     expect(await page.evaluate(() => !!history.state?.catanApp)).toBe(false);
     if (name === '我的') {
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      expect(await page.evaluate(() => !!history.state?.catanApp)).toBe(true);
+      await expect.poll(() => page.evaluate(() => !!history.state?.catanApp)).toBe(true);
       await page.evaluate(() => history.back());
       await expect(page.locator('.exit-toast')).toBeVisible();
     }
@@ -117,10 +117,9 @@ test('rapid AI edits survive delayed replies and keep the configured later AI', 
     const { socketService: service } = await import('/src/' + 'socketService.ts');
     const socket = service.socket;
     const original = socket.onevent.bind(socket);
-    socket.onevent = (packet: any) => {
-      if (packet.data[0] === 'room_state' && packet.data[1]?.settingsMutation) setTimeout(() => original(packet), 180);
-      else original(packet);
-    };
+    // Delay the transport without reordering room and game events. Socket.IO
+    // guarantees ordering; delaying only room_state would invent stale packets.
+    socket.onevent = (packet: any) => { setTimeout(() => original(packet), 180); };
     // Three distinct clicks before React has committed a render.
     for (const index of [1, 2, 3]) (document.querySelector(`[data-ai-slot="${index}"] button`) as HTMLButtonElement).click();
   });

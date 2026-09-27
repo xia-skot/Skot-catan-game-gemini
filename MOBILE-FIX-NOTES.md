@@ -1,5 +1,30 @@
 # 移动端修复与测试说明
 
+## 第四轮更新（当前上传包）
+
+使用 `mobile-fix-v4-upload.zip`，共 89 个文件，包含前三轮修复。不需要先上传旧包，不能只上传 src。尚未上传 GitHub 或部署 Render。
+
+- “正在驶入海域”恢复原版深蓝粗斜体、白色轻阴影与 78%/80% 的位置；保留动态省略号及随海浪起伏的帆船。资源加载进度仍单独显示。
+- 安装启动图标更新为 1254×1254 高清方形版本，留出裁切安全边距，背景统一为冷白色；名称简化为“CATAN · 卡坦岛”。游戏内部原有图标未替换。
+- 返回后不再追加历史记录，改为复用原有记录。修复 Chromium 无新点击时把同页记录跳过的问题；子菜单逐级返回，首页超过一秒重新提示。保留原对局退出规则。
+- 移除主界面手动全屏按钮，没有添加自动全屏请求。
+- 棋盘数字统一使用 Times New Roman/Times 粗体；拖动缓存和松手绘制使用同一字体定义，不改地图操作。
+- 骰子总点数预留固定宽度、斜体左右余量与行高，避免 iPhone 的两位数被裁切。
+
+系统启动页的排版由系统生成，网页不能任意调整其字体或位置。新图标可能受已安装应用的更新周期影响，不需要为此清除账号或游戏缓存。参考：https://developer.chrome.com/docs/lighthouse/pwa/splash-screen 。
+
+返回问题依据 Chromium 的历史记录干预规则修复：https://chromium.googlesource.com/chromium/src/+/main/docs/history_manipulation_intervention.md 。自动测试覆盖无后续点击的连续返回并断言不新增历史记录；这不是华为系统手势实测，仍需真机确认。不能承诺网页强制关闭主屏幕应用或拦截所有系统行为。
+
+本轮不同用例合计 62 项通过、4 项重复逻辑检查跳过。最初两项快速 AI 测试失败来自测试人为打乱消息顺序；修正测试后，三设备重跑均通过，未为此修改联机代码。详情见 MOBILE-VERIFICATION.md。
+
+### 启动图标制作记录
+
+使用内置 imagegen，根据原图标重绘并生成不透明留白版本，没有调用外部图像 API。交付文件：`D:/AI/GPT/Catan/catan-online-2026-09-27/public/icons/catan-launch-v4.png`。
+
+生成要求：保留六边形、中央骰子、六种地形与帆船海浪构图；清晰统一线条、克制色彩、减少细碎细节；无文字、无渐变、无额外阴影；冷白背景，图案完整位于应用图标安全区。最终画布提示词：
+
+> Keep this exact crisp Catan emblem unchanged. Only prepare the final installed-app icon canvas: square high-resolution image, fully OPAQUE solid #f8fafc background everywhere including within the outer hexagon's empty areas, NO transparency and NO black background. Scale the entire emblem down so its topmost and bottommost points sit at 15% and 85% of the canvas height, centered horizontally, with generous clean uniform padding. Keep all six terrains, central die, sailboat and waves unchanged, no extra objects or typography. This is a maskable PWA icon and must fit entirely within the central 70% safe diameter. Flat clean image, no additional effects.
+
 ## 第三轮更新
 
 本次使用 `mobile-fix-v3-upload.zip`，不是上一轮上传包。逐文件清单共 87 项，包含前两轮修复和本轮更新，不含密码、依赖目录及测试产物。尚未上传 GitHub 或部署 Render。
@@ -40,7 +65,7 @@
 
 ## 本次调整
 
-- 普通浏览器不再自动反复请求全屏，保留“约战”页右上角手动全屏入口；识别主屏幕独立、minimal-ui 和 fullscreen 模式。
+- 普通浏览器不再自动反复请求全屏；第四轮已移除“约战”页手动全屏入口。识别主屏幕独立、minimal-ui 和 fullscreen 模式。
 - 返回按钮、浏览器返回和左边缘向右滑，统一处理最上层弹窗、私信详情、私信列表及一级菜单。原有游戏退出规则保留。
 - 只有四个一级页面允许横向滑动。聊天、二级菜单、滑块和输入控件不接管主页滑动；处理取消、多指、纵向操作以及手势后的误点击。
 - 一级页共用顶部安全区和正常布局的底栏，保留 iPhone 必需的底部手势安全区，删除多余空白。手机大厅标题上方间距减少 16px。
@@ -60,14 +85,14 @@
 1. 解压上传包，进入 GitHub 仓库根目录，确认上方路径没有额外的 `src`。
 2. 点击 **Add file → Upload files**，拖入解压目录里面的文件和文件夹，不要拖入最外层的打包目录，也不要上传 ZIP 本身。
 3. 保持目录结构：例如 `src/App.tsx`、`public/assets/images/...`、`shared/roomSetup.ts` 和 `server/messageRoutes.ts`。不要上传成 `src/src/App.tsx`。
-4. 一次提交包内全部 87 个文件。尤其不能漏掉根目录的 `server.ts`、新增的 `shared` 文件夹、`public/assets` 和 `src/components/SailingScene.tsx`。本轮不能只上传 `src`，前端与服务器需要一起更新。
+4. 一次提交包内全部 89 个文件。尤其不能漏掉根目录的 `server.ts`、`shared` 文件夹、`public/assets`、`public/icons`、`public/manifest.json` 和 `src/components/SailingScene.tsx`。本轮不能只上传 `src`，前端与服务器需要一起更新。
 5. Render 若启用自动部署，会根据该分支的新提交构建；否则在 Render 手动部署最新提交。等待部署成功后再测试。
 
 未改动的现有文件不需要重传，也不要先删除仓库文件。正常更新无需清除账号缓存。浏览器若仍保持旧页面，可关闭后重新打开；已安装的主屏幕应用可能需要完全退出后重开以获取新清单。
 
 ## 验证范围与限制
 
-最终代码分两组完成全部 90 项回归：80 项通过、10 项跳过、0 项失败，类型检查和正式构建通过。八项跳过是已在电脑项目通过的重复服务端/纯逻辑检查，另两项是本机 WebKit 能力限制。逐项结果见 `MOBILE-VERIFICATION.md`。
+第三轮代码曾分两组完成全部 90 项回归：80 项通过、10 项跳过、0 项失败。本轮为顶部第四轮记录中的针对性回归，不把上一轮结果算作本轮完整复测。逐项结果见 `MOBILE-VERIFICATION.md`。
 
 电脑、安卓和 iPhone 尺寸各完成连续 20 次菜单切换/返回。新增检查覆盖一秒退出窗口、私信逐级返回、管理员玩家资料层级、31 次快速 AI 点击、延迟回复、人数缩减、开局/重返帆船动画及地图缩放。
 
