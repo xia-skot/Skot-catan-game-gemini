@@ -1,0 +1,18 @@
+{
+  "name": "卡坦岛 Catan Online",
+  "short_name": "卡坦岛",
+  "description": "极简精致的线上卡坦岛桌游，支持手机与电脑联机对战。",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/catan_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

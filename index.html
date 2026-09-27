@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN" class="notranslate" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="google" content="notranslate" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="卡坦岛" />
+    <link rel="apple-touch-icon" href="https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/catan_logo.png" />
+    <title>卡坦岛 - Catan Online</title>
+  </head>
+  <body class="notranslate bg-slate-50" translate="no">
+    <div id="root">
+      <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #e0f2fe; color: #0284c7; font-family: sans-serif;">
+        <div style="font-weight: 900; font-size: 1.5rem; letter-spacing: 0.2em; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;">正在驶入海域......</div>
+      </div>
+      <style>
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      </style>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

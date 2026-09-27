@@ -1,0 +1,8 @@
+{
+  "name": "Catan Online 2026 05 10",
+  "description": "A web-based implementation of the classic board game Settlers of Catan, featuring hexagonal maps, resource management, and strategic gameplay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

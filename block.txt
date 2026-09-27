@@ -1,0 +1,21 @@
+    </div>
+
+      <RulesModal isOpen={showRulesModal} onClose={() => setShowRulesModal(false)} />
+      <SoundSettingsModal 
+        isOpen={showSoundModal} 
+        onClose={() => setShowSoundModal(false)} 
+        isAdmin={currentUser?.role === 'admin'}
+        gameContainerRef={gameContainerRef}
+      />
+      
+      {/* Game Over Modal */}
+      <AnimatePresence>
+        {showGameOver && (
+          <GameOverModal 
+            gameState={gameState} 
+            maxWidth={stageWidth}
+            onReturnToLobby={handleReturnToLobby}
+            onReturnToMap={handleReturnToMap}
+          />
+        )}
+      </AnimatePresence>

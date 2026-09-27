@@ -1,0 +1,80 @@
+--- src/App.tsx
++++ src/App.tsx
+@@ -2147,40 +2147,42 @@
+     return () => clearInterval(interval);
+   }, [gameState, botProcessorId, nextTurn]);
+ 
+   // --- PARALLEL BOT ACTIONS (e.g. Discarding, Trade Responses) ---
+-  useEffect(() => {
+-    if (!gameState || !roomState || isDiceRolling) return;
+-    
+-    // Use roomState host check to ensure only one client processes bots
+-    const isBotProcessor = botProcessorId === socketService.playerId;
+-    if (!isBotProcessor) return;
+-
+-    if (gameState.phase === 'discard') {
+-      const botPendingDiscards = gameState.pendingDiscards.filter(pd => gameState.players[pd.playerId].isBot);
+-      
+-      if (botPendingDiscards.length > 0) {
+-        // Find the first one that hasn't been processed yet in this tick
+-        const pd = botPendingDiscards[0];
+-        
+-        // We use a small timeout to avoid hammering the state
+-        const timer = setTimeout(() => {
+-          const player = gameState.players[pd.playerId];
+-          const resPool = Object.entries(player.resources).flatMap(([res, count]) => Array(count).fill(res as ResourceType));
+-          const toDiscard: Record<ResourceType, number> = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 };
+-          
+-          let amountToDiscard = pd.amount;
+-          for (let i = 0; i < amountToDiscard; i++) {
+-            if (resPool.length > 0) {
+-              const idx = Math.floor(Math.random() * resPool.length);
+-              toDiscard[resPool[idx]]++;
+-              resPool.splice(idx, 1);
+-            }
+-          }
+-          discardCards(pd.playerId, toDiscard);
+-        }, 1500);
+-        return () => clearTimeout(timer);
+-      }
+-    }
+-  }, [gameState?.phase, gameState?.pendingDiscards, botProcessorId, isDiceRolling, discardCards, gameState?.players]);
++  const processedDiscardsRef = useRef<Record<number, boolean>>({});
++
++  useEffect(() => {
++    if (!gameState || !roomState || isDiceRolling || gameState.phase !== 'discard') {
++      processedDiscardsRef.current = {}; // Reset when not in discard phase
++      return;
++    }
++    
++    const isBotProcessor = botProcessorId === socketService.playerId;
++    if (!isBotProcessor) return;
++
++    const botPendingDiscards = gameState.pendingDiscards.filter(pd => gameState.players[pd.playerId].isBot);
++    
++    botPendingDiscards.forEach(pd => {
++      if (!processedDiscardsRef.current[pd.playerId]) {
++        processedDiscardsRef.current[pd.playerId] = true;
++        
++        setTimeout(() => {
++          // Fetch the latest player state from the ref/state is tricky, but we can assume they have resources
++          // We use the player object as it was when this effect triggered
++          const player = gameState.players[pd.playerId];
++          const resPool = Object.entries(player.resources).flatMap(([res, count]) => Array(count).fill(res as ResourceType));
++          const toDiscard: Record<ResourceType, number> = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 };
++          
++          let amountToDiscard = pd.amount;
++          for (let i = 0; i < amountToDiscard; i++) {
++            if (resPool.length > 0) {
++              const idx = Math.floor(Math.random() * resPool.length);
++              toDiscard[resPool[idx]]++;
++              resPool.splice(idx, 1);
++            }
++          }
++          discardCards(pd.playerId, toDiscard);
++        }, 1500 + Math.random() * 1000); // random stagger to avoid all bots discarding at same ms
++      }
++    });
++  }, [gameState, roomState, isDiceRolling, botProcessorId, discardCards]);
+ 
+   // --- BOT LOGIC ---
