@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { margin: 0; color: #253042; background: #e9edf1; font-family: system-ui, sans-serif; font-size: 14px; }
+header { position: sticky; top: 0; z-index: 1; background: white; border-bottom: 1px solid #d5dbe0; padding: 12px 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+strong { white-space: nowrap; font-size: 17px; }
+small { color: #718096; font-size: 12px; font-weight: 400; margin-left: 8px; }
+nav, .tools { display: flex; gap: 4px; align-items: center; }
+.tools { margin-left: auto; }
+button, a { min-width: 36px; min-height: 36px; border: 0; border-radius: 6px; padding: 8px 10px; background: transparent; color: inherit; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-decoration: none; font: inherit; }
+button:hover, a:hover { background: #f0f2f5; }
+button[aria-pressed="true"] { background: #e9e6ff; color: #5033ce; }
+main { padding: 24px; width: max-content; min-width: 100%; display: flex; justify-content: center; }
+iframe { flex: none; border: 1px solid #c7ced6; background: #f8fafc; box-shadow: 0 8px 30px #25304216; }
+@media (max-width: 600px) { header { gap: 10px; padding: 10px; } main { padding: 12px; } }

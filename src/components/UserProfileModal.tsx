@@ -5,6 +5,8 @@ import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3,
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { safeFetchJson } from '../fetchUtils';
+import { requestAppBack, useBackHandler } from '../navigation';
+import { markMessagesRead, readMessageIds } from '../messageReadState';
 
 interface UserProfileModalProps {
   currentUser: any;
@@ -18,9 +20,10 @@ interface UserProfileModalProps {
   activeView?: string;
   onActiveViewChange?: (view: any) => void;
   disableHistory?: boolean;
+  isActive?: boolean;
 }
 
-export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogout, inline = false, fullScreen = false, onPlayerClick, onRestoreGame, activeView: propActiveView, onActiveViewChange, disableHistory = false }: UserProfileModalProps) {
+export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogout, inline = false, fullScreen = false, onPlayerClick, onRestoreGame, activeView: propActiveView, onActiveViewChange, disableHistory = false, isActive = true }: UserProfileModalProps) {
   const [internalActiveView, setInternalActiveView] = useState<'menu' | 'edit' | 'history' | 'sound' | 'admin' | 'debug' | 'feedback' | 'messages' | 'about'>('menu');
   const activeView = propActiveView !== undefined ? propActiveView : internalActiveView;
   const setActiveView = (v: any) => {
@@ -104,36 +107,35 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       .catch(console.error);
   }, [activeView]);
 
-  const isPopStateRef = React.useRef(false);
+  useBackHandler(isActive && (inPrivateChatDetail || activeView !== 'menu' || !inline), () => {
+    if (inPrivateChatDetail) setInPrivateChatDetail(false);
+    else if (activeView !== 'menu') setActiveView('menu');
+    else onClose();
+    return true;
+  }, inline ? 20 : 80);
 
   useEffect(() => {
-    if (disableHistory) return;
-    if (isPopStateRef.current) {
-      isPopStateRef.current = false;
-      return;
-    }
-    const state = { modalView: activeView, time: Date.now() };
-    window.history.pushState(state, '');
-  }, [activeView, disableHistory]);
-
-  useEffect(() => {
-    if (disableHistory) return;
-    const handlePopState = () => {
-      isPopStateRef.current = true;
-      if (inPrivateChatDetail) {
-        setInPrivateChatDetail(false);
-      } else if (activeView !== 'menu') {
-        setActiveView('menu');
-      } else {
-        onClose();
-      }
+    if (!inPrivateChatDetail || !isActive) return;
+    const viewport = window.visualViewport;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        document.documentElement.style.setProperty('--chat-height', `${viewport?.height ?? window.innerHeight}px`);
+        document.documentElement.style.setProperty('--chat-top', `${viewport?.offsetTop ?? 0}px`);
+      });
     };
-
-    window.addEventListener('popstate', handlePopState);
+    update();
+    viewport?.addEventListener('resize', update);
+    viewport?.addEventListener('scroll', update);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
+      cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', update);
+      viewport?.removeEventListener('scroll', update);
+      document.documentElement.style.removeProperty('--chat-height');
+      document.documentElement.style.removeProperty('--chat-top');
     };
-  }, [activeView, onClose, disableHistory]);
+  }, [inPrivateChatDetail, isActive]);
 
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
@@ -384,14 +386,8 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   const markMessagesAsRead = useCallback((ids: string[]) => {
     if (!ids || ids.length === 0) return;
     const idSet = new Set(ids);
-    setMessages(prev => {
-      const updated = prev.map(m => idSet.has(m.id) ? { ...m, read: true } : m);
-      const readStorageKey = `catan_read_msgs_${currentUser?.username || 'user'}`;
-      const existingRead: string[] = JSON.parse(localStorage.getItem(readStorageKey) || '[]');
-      const newRead = Array.from(new Set([...existingRead, ...ids]));
-      localStorage.setItem(readStorageKey, JSON.stringify(newRead));
-      return updated;
-    });
+    markMessagesRead(currentUser?.username || 'user', ids);
+    setMessages(prev => prev.map(m => idSet.has(m.id) ? { ...m, read: true } : m));
   }, [currentUser?.username]);
 
   const markMessageAsRead = (id: string) => {
@@ -413,9 +409,8 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       if (!res.ok) return;
       const data = await safeFetchJson(res);
       if (data?.messages) {
-        const readStorageKey = `catan_read_msgs_${currentUser?.username || 'user'}`;
-        const readMsgs: string[] = JSON.parse(localStorage.getItem(readStorageKey) || '[]');
-        setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.includes(m.id) })));
+        const readMsgs = readMessageIds(currentUser?.username || 'user');
+        setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(m.id) })));
       }
       if (data?.adminUsername) {
         setAdminUsername(data.adminUsername);
@@ -441,7 +436,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
   // 仅当用户真正进入某个人的私信详情时，才将该对话中的新私信标记为已读
   useEffect(() => {
-    if (activeView === 'private_chat' && inPrivateChatDetail) {
+    if (isActive && activeView === 'private_chat' && inPrivateChatDetail && !document.hidden) {
       scrollToChatBottom();
       const unreadIds = activeChatMsgs
         .filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id)
@@ -450,7 +445,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         markMessagesAsRead(unreadIds);
       }
     }
-  }, [activeView, inPrivateChatDetail, activeChatMsgs.length, markMessagesAsRead, currentUser?.username, currentUser?.id]);
+  }, [isActive, activeView, inPrivateChatDetail, activeChatMsgs, markMessagesAsRead, currentUser?.username, currentUser?.id]);
 
   const handleSendPrivateMessage = async () => {
     if (!replyText.trim() || sendingReply) return;
@@ -653,7 +648,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setErrorText('');
     setSuccessText('');
 
-    if (currentUser.isGuest) {
+    if (currentUser?.isGuest) {
       setErrorText('游客无法修改资料，请注册正式账号。');
       return;
     }
@@ -748,13 +743,13 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       }`}
     >
       {/* Full-screen Private Chat View using createPortal to escape transformed parent container and cover entire screen */}
-      {activeView === 'private_chat' && inPrivateChatDetail && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[99999] flex flex-col bg-slate-50 w-screen h-screen">
+      {isActive && activeView === 'private_chat' && inPrivateChatDetail && typeof document !== 'undefined' && createPortal(
+        <div className="chat-screen z-[99999] flex flex-col bg-slate-50" data-no-swipe>
       {/* Top Chat Header */}
           <div className="bg-white px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] border-b border-slate-200/80 text-slate-800 shadow-xs flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <button 
-                onClick={() => setInPrivateChatDetail(false)}
+                onClick={requestAppBack}
                 className="p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-600 hover:text-slate-900 shrink-0"
                 title="返回"
               >
@@ -909,21 +904,21 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           </div>
           <div>
             <div className="text-base font-black text-slate-800 leading-tight flex items-center gap-1.5">
-              {currentUser.username}
+              {currentUser?.username}
               {currentUser.isGuest && (
                 <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full border border-indigo-100">
                   游客
                 </span>
               )}
             </div>
-            <div className="text-[10px] text-slate-400 font-medium leading-tight mt-0.5">{currentUser.isGuest ? '未绑定邮箱' : currentUser.email}</div>
+            <div className="text-[10px] text-slate-400 font-medium leading-tight mt-0.5">{currentUser.isGuest ? '未绑定邮箱' : currentUser?.email}</div>
           </div>
         </div>
         
         <div className="flex items-center gap-1">
             {activeView !== 'menu' && (
               <button 
-                onClick={() => disableHistory ? setActiveView('menu') : window.history.back()}
+                onClick={requestAppBack}
                 className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
                 title="返回"
               >
@@ -949,7 +944,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="edit"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100"
@@ -1045,14 +1040,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         {activeView === 'sound' && (
           <AnimatePresence>
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
+              initial={inline ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-6"
             >
               <SoundSettingsModal 
-                isOpen={true} 
-                onClose={() => {}} 
+                isOpen={isActive}
+                onClose={() => {}}
                 isAdmin={currentUser?.role === 'admin'}
                 inline={true}
               />
@@ -1063,7 +1058,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         {activeView === 'admin' && (
           <AnimatePresence>
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
+              initial={inline ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-6"
@@ -1081,7 +1076,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="debug"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-4"
@@ -1194,7 +1189,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="stats"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
@@ -1317,7 +1312,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="messages"
-              initial={{ opacity: 0, x: 20 }}
+              initial={inline ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-4 font-sans"
@@ -1475,7 +1470,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               /* Messages List View (不同的玩家显示独立的条形框) */
               <motion.div
                 key="private_chat_list"
-                initial={{ opacity: 0, y: 5 }}
+                initial={inline ? false : { opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 className="space-y-3 font-sans py-2"
@@ -1496,9 +1491,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         </div>
                         {playerPrivateMsgs.some(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id) ? (
                           <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white shadow-xs"></span>
-                        ) : (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-white rounded-full"></span>
-                        )}
+                        ) : null}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -1602,7 +1595,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="feedback"
-              initial={{ opacity: 0, x: 20 }}
+              initial={inline ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-4 font-sans"
@@ -1736,7 +1729,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="about"
-              initial={{ opacity: 0, x: 20 }}
+              initial={inline ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-4 font-sans"
@@ -1769,7 +1762,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <AnimatePresence mode="wait">
             <motion.div
               key="menu"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-3"

@@ -9,8 +9,12 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import { registerMessageDeletionRoutes } from './server/messageRoutes';
+import assetManifest from './src/assetManifest.json';
+const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
+if (DEMO_MODE && process.env.NODE_ENV === 'production') throw new Error('Demo is disabled in production');
 
 // Remove empty string env vars so they don't block platform process.env variables
 for (const [key, value] of Object.entries(process.env)) {
@@ -45,7 +49,7 @@ const adminMiddleware = (req: any, res: any, next: any) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = DEMO_MODE ? 5174 : Number(process.env.PORT || 3000);
   
   app.use(express.json());
 
@@ -55,7 +59,7 @@ async function startServer() {
   const rooms = new Map<string, any>();
 
   // MongoDB Connection setup
-  const MONGODB_URI = process.env.MONGODB_URI?.trim();
+  const MONGODB_URI = DEMO_MODE ? undefined : process.env.MONGODB_URI?.trim();
   let dbClient: MongoClient | null = null;
   let usersCollection: any = null;
   let verificationCodesCollection: any = null;
@@ -66,6 +70,11 @@ async function startServer() {
   let feedbackCollection: any = null;
   let aboutCollection: any = null;
   
+  if (DEMO_MODE) {
+    const { attachDemoApi } = await import('./demo/server');
+    messagesCollection = attachDemoApi(app, JWT_SECRET, () => rooms.clear());
+  }
+
   if (MONGODB_URI) {
     dbClient = new MongoClient(MONGODB_URI, {
       serverApi: {
@@ -622,55 +631,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/messages/:id', authMiddleware, async (req: any, res: any) => {
-    try {
-      const { id } = req.params;
-      if (!messagesCollection) return res.status(500).json({ error: 'DB未连接' });
-      await messagesCollection.deleteOne({ _id: new ObjectId(id) });
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: '删除消息失败' });
-    }
-  });
-
-  app.delete('/api/messages/conversation', authMiddleware, async (req: any, res: any) => {
-    try {
-      const { partner } = req.body;
-      if (!messagesCollection) return res.status(500).json({ error: 'DB未连接' });
-
-      const currentUserId = req.user?.userId ? req.user.userId.toString() : null;
-      const currentUsername = req.user?.username || null;
-      const isAdmin = req.user?.role === 'admin';
-
-      if (isAdmin && partner) {
-        await messagesCollection.deleteMany({
-          type: 'private',
-          $or: [
-            { senderName: partner },
-            { senderId: partner },
-            { targetUserName: partner },
-            { targetUserId: partner }
-          ]
-        });
-      } else if (currentUserId || currentUsername) {
-        await messagesCollection.deleteMany({
-          type: 'private',
-          $or: [
-            { senderId: currentUserId },
-            { senderName: currentUsername },
-            { targetUserId: currentUserId },
-            { targetUserName: currentUsername }
-          ]
-        });
-      }
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: '删除对话框失败' });
-    }
-  });
+  registerMessageDeletionRoutes(app, authMiddleware, () => messagesCollection);
 
   app.delete('/api/admin/messages/:id', authMiddleware, adminMiddleware, async (req, res) => {
     try {
@@ -1045,125 +1006,21 @@ async function startServer() {
     }
   });
 
-  // In-memory image buffer cache for ultra-fast, zero-failure image delivery
-  const serverImageBufferCache = new Map<string, { buffer: Buffer; contentType: string }>();
-
-  // Preload all critical game assets on startup so proxy-image responds in 0ms
-  const PRELOAD_IMAGE_FILENAMES = [
-    '森林.jpg', '麦田.jpg', '牧场.jpg', '沙漠.jpg', '矿山.jpg', '丘陵.jpg', '金矿.jpg', '海洋.jpg',
-    '树.png', '砖块.png', '羊2.png', '小麦.png', '铁矿石.png', '强盗2.png', '脚印.png', '船锚.png',
-    '海盗船.png', '帆船.png', 'catan_logo.png', '发展卡.png', '资源卡.png', '道路.png', '地图册.png',
-    '骑士.png', '胜利点.png', '道路建设.png', '丰收.png', '垄断.png'
-  ];
-
-  async function preloadServerAssets() {
-    console.log('[AssetPreloader] Starting server-side prefetch of Catan assets...');
-    for (const filename of PRELOAD_IMAGE_FILENAMES) {
-      const encodedFilename = encodeURIComponent(filename);
-      const urlCandidates = [
-        `https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/${encodedFilename}`,
-        `https://cdn.jsdelivr.net/gh/xia-skot/Catan_Pics/img/${encodedFilename}`,
-        `https://gcore.jsdelivr.net/gh/xia-skot/Catan_Pics/img/${encodedFilename}`,
-        `https://raw.githubusercontent.com/xia-skot/Catan_Pics/main/img/${encodedFilename}`
-      ];
-
-      for (const targetUrl of urlCandidates) {
-        try {
-          const resp = await fetch(targetUrl, {
-            headers: { 'User-Agent': 'Catan-Image-Proxy/1.0' },
-            signal: AbortSignal.timeout(6000)
-          });
-          if (resp.ok) {
-            const arrayBuffer = await resp.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            const contentType = resp.headers.get('content-type') || (filename.endsWith('.jpg') ? 'image/jpeg' : 'image/png');
-            
-            // Cache by all candidate URLs and direct URL
-            for (const c of urlCandidates) {
-              serverImageBufferCache.set(c, { buffer, contentType });
-            }
-            serverImageBufferCache.set(targetUrl, { buffer, contentType });
-            break;
-          }
-        } catch (err) {
-          // try next candidate
-        }
-      }
-    }
-    console.log(`[AssetPreloader] Server prefetch complete! Cached ${serverImageBufferCache.size} asset variants in memory.`);
-  }
-  // Run prefetch in background without blocking startup
-  preloadServerAssets().catch(err => console.warn('[AssetPreloader] Prefetch warning:', err));
-
-  app.get('/api/proxy-image', async (req, res) => {
+  // Legacy image URLs resolve to bundled assets, with no arbitrary outbound fetch.
+  app.get('/api/proxy-image', (req, res) => {
     try {
-      let imageUrl = req.query.url as string;
-      if (!imageUrl) {
-        res.status(400).send('Missing url parameter');
-        return;
-      }
-
-      // Check in-memory RAM cache first
-      const cached = serverImageBufferCache.get(imageUrl);
-      if (cached) {
-        res.setHeader('Content-Type', cached.contentType);
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        res.send(cached.buffer);
-        return;
-      }
-
-      // Build fallback fetch candidate list
-      const candidates: string[] = [imageUrl];
-      const match = imageUrl.match(/\/gh\/xia-skot\/Catan_Pics\/(img|audio)\/(.+)$/);
-      if (match) {
-        const folder = match[1];
-        const filename = match[2];
-        candidates.push(
-          `https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/${folder}/${filename}`,
-          `https://cdn.jsdelivr.net/gh/xia-skot/Catan_Pics/${folder}/${filename}`,
-          `https://raw.githubusercontent.com/xia-skot/Catan_Pics/main/${folder}/${filename}`,
-          `https://gcore.jsdelivr.net/gh/xia-skot/Catan_Pics/${folder}/${filename}`
-        );
-      }
-
-      let response: Response | null = null;
-      for (const targetUrl of Array.from(new Set(candidates))) {
-        try {
-          const resp = await fetch(new URL(targetUrl).toString(), {
-            headers: { 'User-Agent': 'Catan-Image-Proxy/1.0' },
-            signal: AbortSignal.timeout(5000)
-          });
-          if (resp.ok) {
-            response = resp;
-            break;
-          }
-        } catch (e) {
-          // continue to next candidate
-        }
-      }
-
-      if (!response || !response.ok) {
-        res.status(502).send('Failed to fetch image from any source');
-        return;
-      }
-
-      const contentType = response.headers.get('content-type') || 'image/png';
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      // Store in RAM cache (max 200 items)
-      if (serverImageBufferCache.size < 200) {
-        serverImageBufferCache.set(imageUrl, { buffer, contentType });
-      }
-
-      res.send(buffer);
-    } catch (error) {
-      console.error('Proxy image error:', error);
-      res.status(500).send('Internal server error');
-    }
+      const url = new URL(String(req.query.url || ''));
+      const hosts = ['fastly.jsdelivr.net', 'cdn.jsdelivr.net', 'gcore.jsdelivr.net', 'testingcf.jsdelivr.net', 'jsd.cdn.zzko.cn', 'raw.githubusercontent.com'];
+      if (url.protocol !== 'https:' || !hosts.includes(url.hostname)) return res.status(400).send('Unsupported asset');
+      const match = url.pathname.match(/(?:\/gh\/xia-skot\/Catan_Pics|\/xia-skot\/Catan_Pics\/main)\/(img|audio)\/([^/]+)$/);
+      if (!match) return res.status(404).send('Asset not found');
+      const files = match[1] === 'img' ? assetManifest.images : assetManifest.audio;
+      const filename = encodeURIComponent(decodeURIComponent(match[2]));
+      const local = files[filename as keyof typeof files];
+      if (!local) return res.status(404).send('Asset not found');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(path.join(__dirname, 'public', local));
+    } catch { res.status(400).send('Invalid asset URL'); }
   });
 
   app.get('/api/user/games', authMiddleware, async (req, res) => {
@@ -1369,9 +1226,14 @@ async function startServer() {
 
   // =============================================================
 
+  for (const kind of ['images', 'audio']) {
+    app.use(`/assets/${kind}`, express.static(path.join(__dirname, 'public/assets', kind), { maxAge: '1y', immutable: true }));
+  }
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
+      mode: DEMO_MODE ? 'demo' : 'development',
       server: { middlewareMode: true },
       appType: 'spa',
     });
@@ -1467,7 +1329,7 @@ async function startServer() {
           settings: {
             playerCount: 4,
             mapType: 'archipelago',
-            botConfig: [false, false, false, false]
+            botConfig: DEMO_MODE ? [false, true, true, true] : [false, false, false, false]
           }
         };
         rooms.set(roomId, room);

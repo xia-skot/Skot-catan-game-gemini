@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { SmartImage } from './SmartImage';
+import { requestAppBack, useBackHandler } from '../navigation';
 import { X, BookOpen, Map, Users, Star, Hammer, Ship as ShipIcon, Home, Castle, Trophy, Anchor, ArrowLeft, ArrowRight } from 'lucide-react';
 import {
   FOREST_IMG,
@@ -21,6 +23,7 @@ import {
 
 interface RulesModalProps {
   isOpen?: boolean;
+  isActive?: boolean;
   onClose?: () => void;
   inline?: boolean;
   activeView?: string;
@@ -28,31 +31,15 @@ interface RulesModalProps {
 }
 
 const HexImg = ({ src, alt }: { src: string, alt: string }) => {
-  const [currentSrc, setCurrentSrc] = useState(() => getImageUrl(src));
-  const candidateIdxRef = React.useRef(0);
-
-  React.useEffect(() => {
-    setCurrentSrc(getImageUrl(src));
-  }, [src]);
-
-  const handleError = () => {
-    const candidates = getImageCandidates(src);
-    candidateIdxRef.current += 1;
-    if (candidateIdxRef.current < candidates.length) {
-      setCurrentSrc(candidates[candidateIdxRef.current]);
-    }
-  };
-
   return (
     <div className={`w-12 h-[54px] mb-1.5 flex items-center justify-center relative`}>
       <div className={`absolute inset-0 bg-slate-300`} style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }} />
       <div className="absolute inset-[2px] overflow-hidden bg-slate-100 flex items-center justify-center" style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}>
-        <img
-          src={currentSrc}
+        <SmartImage
+          src={src}
           alt={alt}
           className="w-full h-full object-cover scale-[1.4]"
           referrerPolicy="no-referrer"
-          onError={handleError}
         />
       </div>
     </div>
@@ -87,14 +74,14 @@ const MockPort = ({ type }: { type: '3:1' | 'wood' | 'brick' | 'wool' | 'grain' 
         {is3to1 ? (
           <Star size={10} className="text-amber-500 fill-amber-500" />
         ) : (
-          <img src={icon} alt={type} className="w-3 h-3 object-contain" />
+          <SmartImage src={icon} alt={type} className="w-3 h-3 object-contain" />
         )}
       </div>
     </div>
   );
 };
 
-export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline = false, activeView: propActiveView, onActiveViewChange }) => {
+export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline = false, isActive = true, activeView: propActiveView, onActiveViewChange }) => {
   const [internalActiveView, setInternalActiveView] = useState<'menu' | 'resources' | 'flow' | 'scoring' | 'building' | 'devcards'>('menu');
   const activeView = propActiveView !== undefined ? propActiveView : internalActiveView;
   const setActiveView = (v: any) => {
@@ -112,6 +99,12 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useBackHandler(isActive && (inline || !!isOpen) && (activeView !== 'menu' || !inline), () => {
+    if (activeView !== 'menu') setActiveView('menu');
+    else onClose?.();
+    return true;
+  }, inline ? 20 : 90);
 
   if (!inline && !isOpen) return null;
 
@@ -157,7 +150,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
         <div className="flex items-center gap-1">
             {activeView !== 'menu' && (
               <button 
-                onClick={() => setActiveView('menu')}
+                onClick={requestAppBack}
                 className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
                 title="返回"
               >
@@ -184,7 +177,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="menu"
-              initial={{ opacity: 0, x: -20 }}
+              initial={inline ? false : { opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
             >
@@ -269,7 +262,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="resources"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="p-4 space-y-6 pb-12"
@@ -289,7 +282,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <img src={LUMBER_ICON} alt="木材" className="w-4 h-4 object-contain" /> 木材
+                        <SmartImage src={LUMBER_ICON} alt="木材" className="w-4 h-4 object-contain" /> 木材
                       </div>
                     </div>
                   </div>
@@ -304,7 +297,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <img src={BRICK_ICON} alt="砖块" className="w-4 h-4 object-contain" /> 砖块
+                        <SmartImage src={BRICK_ICON} alt="砖块" className="w-4 h-4 object-contain" /> 砖块
                       </div>
                     </div>
                   </div>
@@ -319,7 +312,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <img src={WOOL_ICON} alt="羊毛" className="w-4 h-4 object-contain" /> 羊毛
+                        <SmartImage src={WOOL_ICON} alt="羊毛" className="w-4 h-4 object-contain" /> 羊毛
                       </div>
                     </div>
                   </div>
@@ -334,7 +327,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <img src={GRAIN_ICON} alt="小麦" className="w-4 h-4 object-contain" /> 小麦
+                        <SmartImage src={GRAIN_ICON} alt="小麦" className="w-4 h-4 object-contain" /> 小麦
                       </div>
                     </div>
                   </div>
@@ -349,7 +342,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <img src={ORE_ICON} alt="铁矿石" className="w-4 h-4 object-contain" /> 铁矿石
+                        <SmartImage src={ORE_ICON} alt="铁矿石" className="w-4 h-4 object-contain" /> 铁矿石
                       </div>
                     </div>
                   </div>
@@ -505,7 +498,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="flow"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="p-4 space-y-6 pb-12"
@@ -547,7 +540,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="scoring"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="p-4 space-y-6 pb-12"
@@ -626,7 +619,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="building"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="p-4 space-y-6 pb-12"
@@ -644,9 +637,9 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <span className="font-bold text-slate-700 text-sm">道路</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <img src={BRICK_ICON} alt="砖块" className="w-5 h-5 object-contain" />
+                      <SmartImage src={BRICK_ICON} alt="砖块" className="w-5 h-5 object-contain" />
                       <span className="text-slate-300 mx-0.5">+</span>
-                      <img src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
+                      <SmartImage src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
 
@@ -659,9 +652,9 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                         <span className="font-bold text-slate-700 text-sm">船只 (群岛世界)</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <img src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
+                        <SmartImage src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
                         <span className="text-slate-300 mx-0.5">+</span>
-                        <img src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
+                        <SmartImage src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
                       </div>
                     </div>
                     <p className="text-[10px] text-amber-600 font-medium pl-11">
@@ -677,10 +670,10 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <span className="font-bold text-slate-700 text-sm">定居点</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <img src={BRICK_ICON} alt="砖块" className="w-5 h-5 object-contain" />
-                      <img src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
-                      <img src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
-                      <img src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
+                      <SmartImage src={BRICK_ICON} alt="砖块" className="w-5 h-5 object-contain" />
+                      <SmartImage src={LUMBER_ICON} alt="木材" className="w-5 h-5 object-contain" />
+                      <SmartImage src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
+                      <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
 
@@ -692,12 +685,12 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <span className="font-bold text-slate-700 text-sm">城市</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <img src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
-                      <img src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
+                      <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
+                      <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
                       <span className="text-slate-300 mx-0.5">+</span>
-                      <img src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
-                      <img src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
-                      <img src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
 
@@ -709,9 +702,9 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <span className="font-bold text-slate-700 text-sm">发展卡</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <img src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
-                      <img src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
-                      <img src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
+                      <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
                 </div>
@@ -724,7 +717,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
           <AnimatePresence mode="wait">
             <motion.div
               key="devcards"
-              initial={{ opacity: 0, y: 10 }}
+              initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="p-4 space-y-6 pb-12"

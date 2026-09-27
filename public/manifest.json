@@ -5,12 +5,12 @@
   "start_url": "/",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "icons": [
     {
-      "src": "https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/catan_logo.png",
+      "src": "/assets/images/1daa842e0367792f.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

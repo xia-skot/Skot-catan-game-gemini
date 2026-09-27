@@ -175,6 +175,11 @@ import { GameOverModal } from './components/GameOverModal';
 import { motion, AnimatePresence, useDragControls, MotionConfig } from 'motion/react';
 import { audioService } from './audioService';
 import { preloadAllAssets, shouldShowAssetLoadingScreen } from './assetPreloader';
+import { AssetGate } from './components/AssetGate';
+import { SmartImage } from './components/SmartImage';
+import { useLobbySwipe } from './useLobbySwipe';
+import { MESSAGE_READ_EVENT, readMessageIds } from './messageReadState';
+import { hasBackHandler, isInstalledDisplay, requestAppBack, runTopBackHandler, shouldSuppressGestureClick, suppressGestureClick, useBackHandler } from './navigation';
 import { 
   Dices, 
   User, 
@@ -240,51 +245,7 @@ import {
 } from './images';
 import { getCachedImageElement, loadGameImage, useGameImage } from './imageManager';
 
-export const SmartImg = ({ src, alt, className, onClick, ...props }: any) => {
-  const [currentSrc, setCurrentSrc] = useState(() => getCachedImageElement(src)?.src || getImageUrl(src));
-  const candidateIdxRef = useRef(0);
-
-  useEffect(() => {
-    candidateIdxRef.current = 0;
-    const cached = getCachedImageElement(src);
-    if (cached) {
-      setCurrentSrc(cached.src);
-      return;
-    }
-
-    let isMounted = true;
-    setCurrentSrc(getImageUrl(src));
-    loadGameImage(src)
-      .then((img) => {
-        if (isMounted) setCurrentSrc(img.src);
-      })
-      .catch(() => {});
-
-    return () => {
-      isMounted = false;
-    };
-  }, [src]);
-
-  const handleError = () => {
-    const candidates = getImageCandidates(src);
-    candidateIdxRef.current += 1;
-    if (candidateIdxRef.current < candidates.length) {
-      setCurrentSrc(candidates[candidateIdxRef.current]);
-    }
-  };
-
-  return (
-    <img
-      src={currentSrc}
-      alt={alt || ''}
-      className={className}
-      onClick={onClick}
-      onError={handleError}
-      referrerPolicy="no-referrer"
-      {...props}
-    />
-  );
-};
+export const SmartImg = SmartImage;
 
 const ResourceIcon = ({ type, className = "w-4 h-4" }: { type: ResourceType, className?: string }) => (
   <SmartImg 
@@ -595,250 +556,14 @@ const seededRandom = (seed: number) => {
   };
 };
 
-function SailingLoadingScreen({ onComplete, text = "正在驶入海域......", loop = false, onCancel, loadAssets = true }: { onComplete: () => void, text?: string, loop?: boolean, onCancel?: () => void, loadAssets?: boolean }) {
-  const shouldBlockForAssets = useRef(loadAssets && shouldShowAssetLoadingScreen());
-  const [preloadProgress, setPreloadProgress] = useState(shouldBlockForAssets.current ? 0 : 100);
-  const [preloadStatusText, setPreloadStatusText] = useState(shouldBlockForAssets.current ? '资源加载中...' : '正在进入...');
-  const [preloadFinished, setPreloadFinished] = useState(!shouldBlockForAssets.current);
-  const [boatLoaded, setBoatLoaded] = useState(false);
-  const [showCancelBtn, setShowCancelBtn] = useState(false);
-  const [boatAnimKey, setBoatAnimKey] = useState(0);
+function EnteringScreen({ onComplete, loop, text }: { onComplete: () => void; loop: boolean; text: string }) {
+  useEffect(() => { if (!loop) onComplete(); }, [loop, onComplete]);
+  return <div className="app-screen flex items-center justify-center bg-sky-100 text-sky-800 text-sm">{text}</div>;
+}
 
-  const finishTriggeredRef = useRef(false);
-  const completedRef = useRef(false);
-
-  const triggerComplete = useCallback(() => {
-    if (!completedRef.current) {
-      completedRef.current = true;
-      onComplete();
-    }
-  }, [onComplete]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!shouldBlockForAssets.current) {
-      preloadAllAssets().catch(err => console.warn('[App] Background preload error:', err));
-      setPreloadFinished(true);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    preloadAllAssets((percent, label) => {
-      if (!isMounted) return;
-      setPreloadProgress(percent);
-      if (label) setPreloadStatusText(label);
-
-      if (percent >= 100 && !finishTriggeredRef.current) {
-        finishTriggeredRef.current = true;
-        setTimeout(() => {
-          if (isMounted) {
-            setPreloadFinished(true);
-            setBoatAnimKey(k => k + 1);
-          }
-        }, 150);
-      }
-    }, { includeAudio: false }).then(() => {
-      if (isMounted && !finishTriggeredRef.current) {
-        finishTriggeredRef.current = true;
-        setPreloadProgress(100);
-        setPreloadFinished(true);
-        setBoatAnimKey(k => k + 1);
-      }
-    }).catch(() => {
-      if (isMounted && !finishTriggeredRef.current) {
-        finishTriggeredRef.current = true;
-        setPreloadProgress(100);
-        setPreloadFinished(true);
-        setBoatAnimKey(k => k + 1);
-      }
-    });
-
-    const cancelTimer = setTimeout(() => {
-      if (isMounted) setShowCancelBtn(true);
-    }, 6000);
-
-    return () => { 
-      isMounted = false; 
-      clearTimeout(cancelTimer);
-    };
-  }, []);
-
-  // When boat animation starts (preloadFinished is true), guarantee transition complete after 2.6s even if onAnimationEnd doesn't fire
-  useEffect(() => {
-    if (preloadFinished) {
-      const timer = setTimeout(() => {
-        triggerComplete();
-      }, 2600);
-      return () => clearTimeout(timer);
-    }
-  }, [preloadFinished, triggerComplete]);
-
-  const calculatePaths = (w: number, h: number) => {
-    const isPortrait = w < h;
-    const baseY = h / 2 - h * 0.05;
-    const wavelength = isPortrait ? w / 2.0 : w / 3.5;
-    const amplitude = isPortrait ? wavelength * 0.05 : wavelength * 0.03;
-    const finalAmplitude = Math.min(amplitude, isPortrait ? h * 0.02 : h * 0.03);
-    const currentBoatSize = isPortrait ? w / 8 : h / 6;
-
-    let pts = [];
-    const startX = -300;
-    const endX = w + currentBoatSize * 0.6;
-
-    for(let x = startX; x <= w + currentBoatSize + 100; x += 10) {
-       const y = Math.sin((x / wavelength) * Math.PI * 2) * finalAmplitude + baseY;
-       pts.push(x + "," + y);
-    }
-
-    let framesArr = [];
-    const steps = 100;
-    for (let i = 0; i <= steps; i++) {
-        const progress = i / steps;
-        const currentX = startX + (endX - startX) * progress;
-        const currentY = Math.sin((currentX / wavelength) * Math.PI * 2) * finalAmplitude + baseY;
-        const dy = Math.cos((currentX / wavelength) * Math.PI * 2) * finalAmplitude * (Math.PI * 2 / wavelength);
-        
-        let angleRad = Math.atan(dy) * (isPortrait ? 0.2 : 0.12); 
-        let angleDeg = angleRad * (180 / Math.PI); 
-        framesArr.push(`${i}% { transform: translate3d(${currentX}px, ${currentY}px, 0) rotate(${angleDeg}deg); }`);
-    }
-    const framesCss = `@keyframes sailBoatAnim {\n${framesArr.join('\n')}\n}`;
-
-    return {
-        line: "M " + pts.join(" L "),
-        fill: "M " + pts.join(" L ") + " L " + (w + currentBoatSize + 100) + "," + (h + 500) + " L " + startX + "," + (h + 500) + " Z",
-        framesCss,
-        boatSize: currentBoatSize
-    };
-  };
-
-  const [paths, setPaths] = useState(() => calculatePaths(window.innerWidth, window.innerHeight));
-  
-  const loopRef = useRef(loop);
-  useEffect(() => {
-    loopRef.current = loop;
-  }, [loop]);
-
-  useEffect(() => {
-     let isMounted = true;
-     const upds = () => {
-         const w = window.innerWidth;
-         const h = window.innerHeight;
-         const newPaths = calculatePaths(w, h);
-         if (isMounted) setPaths(newPaths);
-     };
-
-     const handleOrientation = () => {
-         upds();
-         setTimeout(upds, 150);
-         setTimeout(upds, 350);
-     };
-
-     window.addEventListener('resize', upds);
-     window.addEventListener('orientationchange', handleOrientation);
-
-     return () => {
-         isMounted = false;
-         window.removeEventListener('resize', upds);
-         window.removeEventListener('orientationchange', handleOrientation);
-     };
-  }, []);
-
-  const handleAnimCycleComplete = () => {
-    if (preloadFinished) {
-      triggerComplete();
-    }
-  };
-
-  return (
-    <div className="absolute inset-0 z-[9999] bg-sky-100 overflow-hidden pointer-events-auto select-none">
-        <div className="w-full h-full relative">
-            <style>{`
-              ${paths.framesCss}
-            `}</style>
-            
-            {/* 资源加载完毕后再显示帆船并执行1次完整的驶过海域动画 */}
-            {preloadFinished && (
-              <div 
-                  key={boatAnimKey}
-                  onAnimationEnd={handleAnimCycleComplete}
-                  style={{
-                    animation: 'sailBoatAnim 2.5s linear 1 forwards',
-                    position: 'absolute', left: 0, top: 0, zIndex: 10
-                  }} className="will-change-transform pointer-events-none">
-                  <div style={{ transform: 'translate(-50%, -95%)', width: paths.boatSize, height: paths.boatSize }} className="relative drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]">
-                      <SmartImg 
-                        src={SAILING_BOAT_IMG} 
-                        alt="Sailing Boat" 
-                        className={`w-full h-full object-contain relative z-10 transition-opacity duration-300 ${boatLoaded ? 'opacity-100' : 'opacity-0'}`}
-                        onLoad={() => setBoatLoaded(true)}
-                      />
-                      {/* SVG Fallback boat so it is instantly visible before/if image loads */}
-                      {!boatLoaded && (
-                        <svg className="absolute inset-0 w-full h-full z-0 pointer-events-none" viewBox="0 0 100 100" fill="none">
-                          <path d="M15 65 L85 65 L70 85 L30 85 Z" fill="#7c2d12" stroke="#451a03" strokeWidth="2" />
-                          <path d="M48 15 L48 65" stroke="#451a03" strokeWidth="4" strokeLinecap="round" />
-                          <path d="M50 18 L80 40 L50 48 Z" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="2" />
-                          <path d="M46 22 L22 42 L46 48 Z" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="2" />
-                        </svg>
-                      )}
-                  </div>
-              </div>
-            )}
-
-            <svg className="absolute inset-0 w-full h-full left-0 top-0 z-20 pointer-events-none">
-                <path d={paths.fill} fill="#27a6e6" />
-                <path d={paths.line} stroke="#85caec" strokeWidth="4" fill="none" />
-                <path d={paths.line} stroke="#1e6b9c" strokeWidth="12" fill="none" className="opacity-40 blur-sm" />
-            </svg>
-
-            {/* When preload is finished: show main text ("正在驶入海域......") */}
-            {preloadFinished ? (
-              <div className="absolute top-[78%] sm:top-[80%] w-full flex flex-col items-center justify-center gap-2 z-[10000] px-4 pointer-events-none">
-                  <span className="text-xl sm:text-2xl font-black italic uppercase tracking-widest text-[#0c4a6e] animate-pulse drop-shadow-[0_2px_4px_rgba(255,255,255,0.8)]">
-                      {text}
-                  </span>
-              </div>
-            ) : (
-              /* When preload is loading: show small text and simplified progress bar */
-              <div className="absolute bottom-8 sm:bottom-12 left-0 right-0 w-full flex flex-col items-center justify-center gap-2.5 z-[10000] px-6 sm:px-12 pointer-events-auto">
-                  <span className="text-xs sm:text-sm font-bold tracking-wider text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)] animate-pulse">
-                    {preloadStatusText}
-                  </span>
-                  
-                  {/* Minimalist ocean-style progress bar */}
-                  <div className="w-[85vw] max-w-3xl h-3.5 sm:h-4 bg-sky-950/50 rounded-full border border-sky-300/30 p-0.5 shadow-inner backdrop-blur-sm relative overflow-hidden">
-                      <div 
-                        className="h-full bg-sky-400 rounded-full transition-all duration-200 ease-out shadow-[0_0_10px_rgba(56,189,248,0.5)]"
-                        style={{ width: `${preloadProgress}%` }}
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center text-[10px] sm:text-xs font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-wider">
-                        {preloadProgress}%
-                      </div>
-                  </div>
-
-                  {showCancelBtn && onCancel && (
-                    <button 
-                      onClick={onCancel}
-                      className="mt-1 px-3 py-1 bg-white/95 text-slate-700 hover:bg-white text-xs font-bold rounded-lg border border-slate-200 shadow-sm transition-all"
-                    >
-                      超时？点击返回大厅
-                    </button>
-                  )}
-              </div>
-            )}
-            
-            {/* Hidden pre-decoded DOM images to keep GPU textures warm */}
-            <div className="hidden" aria-hidden="true" style={{ display: 'none' }}>
-              {ALL_GAME_IMAGES.map((src) => (
-                <img key={src} src={src} decoding="sync" alt="" />
-              ))}
-            </div>
-        </div>
-    </div>
-  );
+function SailingLoadingScreen({ onComplete, text = '正在进入...', loop = false, onCancel, loadAssets = true }: { onComplete: () => void; text?: string; loop?: boolean; onCancel?: () => void; loadAssets?: boolean }) {
+  const screen = <EnteringScreen onComplete={onComplete} loop={loop} text={text} />;
+  return loadAssets ? <AssetGate onCancel={onCancel || onComplete}>{screen}</AssetGate> : screen;
 }
 
 export default function App() {
@@ -853,13 +578,7 @@ export default function App() {
   const dissolveRoomDragControls = useDragControls();
 
   useEffect(() => {
-    let audioUnlocked = false;
-    const unlockAudio = () => {
-      if (!audioUnlocked) {
-        audioService.unlockAll();
-        audioUnlocked = true;
-      }
-    };
+    const unlockAudio = () => { void audioService.unlockAll(); };
     const handleGlobalClick = (e: MouseEvent) => {
       unlockAudio();
       const target = e.target as HTMLElement;
@@ -913,12 +632,6 @@ export default function App() {
     // Preload all game textures and audio into browser cache
     preloadAllAssets().catch(err => console.warn('[App] Preload error:', err));
 
-    const timer = setTimeout(() => {
-      if (!((window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches)) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    }, 1000);
-    return () => clearTimeout(timer);
   }, []);
   
   const { 
@@ -1172,7 +885,7 @@ export default function App() {
       try {
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('room');
-        window.history.replaceState({}, '', newUrl.pathname);
+        window.history.replaceState(window.history.state, '', newUrl.pathname);
       } catch (err) {}
     } else {
       // Keep existing room code
@@ -1194,7 +907,7 @@ export default function App() {
         } else {
           newUrl.searchParams.delete('room');
         }
-        window.history.replaceState({}, '', newUrl.pathname + newUrl.search);
+        window.history.replaceState(window.history.state, '', newUrl.pathname + newUrl.search);
       } catch (err) {}
     }
     
@@ -1296,6 +1009,11 @@ export default function App() {
       setHasUnreadPrivateMsgs(false);
       return;
     }
+    let latestMessages: any[] = [];
+    const updateUnread = () => {
+      const read = readMessageIds(currentUser.username || 'user');
+      setHasUnreadPrivateMsgs(latestMessages.some(m => (m.type === 'private' || m.targetUserId) && !read.has(m.id) && m.senderName !== currentUser.username && m.senderId !== currentUser.id));
+    };
     const checkUnread = async () => {
       try {
         const token = localStorage.getItem('catan_auth_token');
@@ -1305,15 +1023,8 @@ export default function App() {
         if (res.ok) {
           const data = await safeFetchJson(res);
           if (data?.messages) {
-            const readStorageKey = `catan_read_msgs_${currentUser.username || 'user'}`;
-            const readMsgs: string[] = JSON.parse(localStorage.getItem(readStorageKey) || '[]');
-            const unread = data.messages.some((m: any) => 
-              m.type === 'private' && 
-              !readMsgs.includes(m.id) && 
-              m.senderName !== currentUser.username && 
-              m.senderId !== currentUser.id
-            );
-            setHasUnreadPrivateMsgs(unread);
+            latestMessages = data.messages;
+            updateUnread();
           }
         }
       } catch (e) {
@@ -1323,7 +1034,13 @@ export default function App() {
 
     checkUnread();
     const interval = setInterval(checkUnread, 4000);
-    return () => clearInterval(interval);
+    window.addEventListener(MESSAGE_READ_EVENT, updateUnread);
+    window.addEventListener('storage', updateUnread);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(MESSAGE_READ_EVENT, updateUnread);
+      window.removeEventListener('storage', updateUnread);
+    };
   }, [currentUser]);
   const [mapPreviewSeed, setMapPreviewSeed] = useState(() => Number(localStorage.getItem('catan_map_preview_seed')) || 40);
   const [inputRoomId, setInputRoomId] = useState(() => {
@@ -1426,7 +1143,7 @@ export default function App() {
           setGameStarted(true);
           const asSpec = isSpectator || localStorage.getItem('catan_is_spectator') === 'true';
           setSailingText(asSpec ? "正在驶入海域......" : "重新驶入海域......");
-          setShowSailingScreen(true);
+          setShowSailingScreen(shouldShowAssetLoadingScreen());
         } else {
           setGameStarted(true);
         }
@@ -1483,7 +1200,7 @@ export default function App() {
       setShowSailingScreen(false);
       
       // 4. Remove room param from URL
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState(window.history.state, '', window.location.pathname);
     });
 
     socketService.onReturnedToLobby(() => {
@@ -1630,7 +1347,7 @@ export default function App() {
     setIsJoinSpectator(false);
     const newUrl = new URL(window.location.href);
     newUrl.searchParams.set('room', finalRoomId);
-    window.history.replaceState({}, '', newUrl.pathname + newUrl.search);
+    window.history.replaceState(window.history.state, '', newUrl.pathname + newUrl.search);
 
     socketService.joinRoom(finalRoomId, playerName);
     setIsJoinedLobby(true);
@@ -1643,7 +1360,7 @@ export default function App() {
     localStorage.setItem('catan_game_active', 'true');
     const newUrl = new URL(window.location.href);
     newUrl.searchParams.set('room', restoredRoomId);
-    window.history.replaceState({}, '', newUrl.pathname + newUrl.search);
+    window.history.replaceState(window.history.state, '', newUrl.pathname + newUrl.search);
     
     socketService.connect();
     socketService.joinRoom(restoredRoomId, playerName, false);
@@ -1682,7 +1399,7 @@ export default function App() {
     setInputRoomId(newRoomId);
     setActiveLobbyTab('lobby');
 
-    window.history.replaceState({}, '', window.location.pathname);
+    window.history.replaceState(window.history.state, '', window.location.pathname);
   }, [roomState?.roomId]);
 
   const handleCopyRoomCode = () => {
@@ -1822,7 +1539,8 @@ export default function App() {
     const handleResize = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      setWindowSize({ width: w, height: h });
+      if (document.activeElement?.matches('input, textarea, [contenteditable="true"]')) return;
+      setWindowSize(previous => previous.width === w && previous.height === h ? previous : { width: w, height: h });
       if (w > h) {
         setDeviceOrientation('landscape');
       } else {
@@ -2046,28 +1764,18 @@ export default function App() {
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showPwaGuide, setShowPwaGuide] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return (window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-  });
-
+  const [isStandalone, setIsStandalone] = useState(isInstalledDisplay);
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    
-    const mediaQuery = window.matchMedia('(display-mode: standalone)');
-    const handleMediaChange = (e: MediaQueryListEvent) => {
-      setIsStandalone(e.matches);
-    };
-    mediaQuery.addEventListener('change', handleMediaChange);
-
+    const handleInstall = (event: Event) => { event.preventDefault(); setDeferredPrompt(event); };
+    const update = () => setIsStandalone(isInstalledDisplay());
+    const queries = ['standalone', 'fullscreen', 'minimal-ui'].map(mode => matchMedia(`(display-mode: ${mode})`));
+    window.addEventListener('beforeinstallprompt', handleInstall);
+    window.addEventListener('appinstalled', update);
+    queries.forEach(query => query.addEventListener('change', update));
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      mediaQuery.removeEventListener('change', handleMediaChange);
+      window.removeEventListener('beforeinstallprompt', handleInstall);
+      window.removeEventListener('appinstalled', update);
+      queries.forEach(query => query.removeEventListener('change', update));
     };
   }, []);
 
@@ -2095,140 +1803,11 @@ export default function App() {
      }
    };
  
-   const lobbyTouchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-   const [lobbyDragOffset, setLobbyDragOffset] = useState(0);
-   const lobbyDragOffsetRef = useRef(0);
-   const [isLobbyDragging, setIsLobbyDragging] = useState(false);
-   const lobbySwipeLockedRef = useRef<'none' | 'horizontal' | 'vertical'>('none');
-
-   const handleLobbyTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-     const target = e.target as HTMLElement;
-     if (
-       target.tagName === 'INPUT' || 
-       target.tagName === 'TEXTAREA' || 
-       target.closest('input') || 
-       target.closest('textarea') ||
-       target.closest('[role="slider"]') ||
-       target.closest('.no-swipe')
-     ) {
-       return;
-     }
-
-     const touch = e.touches[0];
-     if (touch) {
-       lobbyTouchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-       lobbySwipeLockedRef.current = 'none';
-       lobbyDragOffsetRef.current = 0;
-       setIsLobbyDragging(false);
-       setLobbyDragOffset(0);
-     }
-   };
-
-   const handleLobbyTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-     if (!lobbyTouchStartRef.current) return;
-     const touch = e.touches[0];
-     if (!touch) return;
-
-     const deltaX = touch.clientX - lobbyTouchStartRef.current.x;
-     const deltaY = touch.clientY - lobbyTouchStartRef.current.y;
-
-     if (lobbySwipeLockedRef.current === 'none') {
-       const xDist = Math.abs(deltaX);
-       const yDist = Math.abs(deltaY);
-       if (xDist > 5 || yDist > 5) {
-         if (xDist > yDist * 0.85) {
-           lobbySwipeLockedRef.current = 'horizontal';
-           setIsLobbyDragging(true);
-         } else {
-           lobbySwipeLockedRef.current = 'vertical';
-         }
-       }
-     }
-
-     if (lobbySwipeLockedRef.current === 'vertical') {
-       return;
-     }
-
-     if (lobbySwipeLockedRef.current === 'horizontal') {
-       if (e.cancelable) {
-         e.preventDefault();
-       }
-       const tabs: ('lobby' | 'rooms' | 'profile' | 'rules')[] = ['lobby', 'rooms', 'profile', 'rules'];
-       const currentIndex = tabs.indexOf(activeLobbyTab);
-
-       let currentDrag = deltaX;
-       if (currentIndex === 0 && deltaX > 0) {
-         currentDrag = deltaX * 0.25; // rubber band
-       } else if (currentIndex === tabs.length - 1 && deltaX < 0) {
-         currentDrag = deltaX * 0.25; // rubber band
-       }
-       lobbyDragOffsetRef.current = currentDrag;
-       setLobbyDragOffset(currentDrag);
-     }
-   };
-
-   const handleLobbyTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-     if (!lobbyTouchStartRef.current) return;
-     
-     const changedTouch = e.changedTouches[0];
-     const rawDrag = changedTouch ? changedTouch.clientX - lobbyTouchStartRef.current.x : lobbyDragOffsetRef.current;
-     const elapsed = Math.max(1, Date.now() - lobbyTouchStartRef.current.time);
-     const velocity = Math.abs(rawDrag) / elapsed;
-     const finalDrag = lobbyDragOffsetRef.current || rawDrag;
-     const wasHorizontal = lobbySwipeLockedRef.current === 'horizontal';
-
-     lobbyTouchStartRef.current = null;
-     lobbySwipeLockedRef.current = 'none';
-     lobbyDragOffsetRef.current = 0;
-     setIsLobbyDragging(false);
-     setLobbyDragOffset(0);
-
-     if (!wasHorizontal) return;
-
-     const tabs: ('lobby' | 'rooms' | 'profile' | 'rules')[] = ['lobby', 'rooms', 'profile', 'rules'];
-     const currentIndex = tabs.indexOf(activeLobbyTab);
-     if (currentIndex === -1) return;
-
-     const threshold = Math.min(window.innerWidth * 0.045, 24);
-     const isQuickSwipe = velocity > 0.35 && Math.abs(rawDrag) > 18;
-
-     if (finalDrag < -threshold || (isQuickSwipe && rawDrag < 0)) {
-       const nextIndex = Math.min(tabs.length - 1, currentIndex + 1);
-       if (nextIndex !== currentIndex) {
-         setActiveLobbyTab(tabs[nextIndex]);
-       }
-     } else if (finalDrag > threshold || (isQuickSwipe && rawDrag > 0)) {
-       const prevIndex = Math.max(0, currentIndex - 1);
-       if (prevIndex !== currentIndex) {
-         setActiveLobbyTab(tabs[prevIndex]);
-       }
-     }
-   };
-
-  // Auto-restore fullscreen on any user click/touch during active gameplay if exited by system gestures
-  useEffect(() => {
-    if (!gameStarted || isStandalone) return;
-
-    const handleAutoFullscreenRestore = (e: MouseEvent | TouchEvent) => {
-      // Don't auto-restore if the user explicitly clicked an action that handles its own fullscreen or modals
-      if (!document.fullscreenElement) {
-        console.log("Auto-restoring fullscreen on gameplay interaction...");
-        const elem = document.documentElement as any;
-        const request = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
-        if (request) {
-          request.call(elem).catch(() => {});
-        }
-      }
-    };
-
-    window.addEventListener('click', handleAutoFullscreenRestore, { capture: true, passive: true });
-    window.addEventListener('touchstart', handleAutoFullscreenRestore, { capture: true, passive: true });
-
-    return () => {
-      window.removeEventListener('click', handleAutoFullscreenRestore, { capture: true });
-      window.removeEventListener('touchstart', handleAutoFullscreenRestore, { capture: true });
-    };
-  }, [gameStarted, isStandalone]);
+   const lobbySwipe = useLobbySwipe(activeLobbyTab, setActiveLobbyTab, () =>
+     !hasBackHandler() && !showSailingScreen && !showMapAlbum && !showMapGenerator &&
+     (activeLobbyTab !== 'profile' || profileActiveView === 'menu') &&
+     (activeLobbyTab !== 'rules' || rulesActiveView === 'menu')
+   );
 
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [isStartingGame, setIsStartingGame] = useState(false);
@@ -2262,7 +1841,7 @@ export default function App() {
 
     const checkAndPlayBgm = () => {
       if (!isFullyInGame) return;
-      if (!audioService.enabled) return;
+      if (!audioService.enabled || showSoundModal || document.hidden) return;
 
       if (!audioService.isBgmPlaying) {
         audioService.playBgm();
@@ -2292,7 +1871,7 @@ export default function App() {
       window.removeEventListener('focus', checkAndPlayBgm);
       document.removeEventListener('visibilitychange', checkAndPlayBgm);
     };
-  }, [isAuthLoading, gameStarted, showSailingScreen, isJoinedLobby]);
+  }, [isAuthLoading, gameStarted, showSailingScreen, isJoinedLobby, showSoundModal]);
 
   const sailingStartTimeRef = useRef(0);
   const [showDebugConsole, setShowDebugConsole] = useState(false);
@@ -2402,70 +1981,21 @@ export default function App() {
     });
   }, [isJoinedLobby, roomState?.roomId, inputRoomId, playerName, isAuthLoading, currentUser]);
 
-  // Auto-request fullscreen on first interaction and handle orientation
-  useEffect(() => {
-    const handleOrientation = () => {
-      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-    };
-    window.addEventListener('resize', handleOrientation);
-    window.addEventListener('orientationchange', handleOrientation);
-    return () => {
-      window.removeEventListener('resize', handleOrientation);
-      window.removeEventListener('orientationchange', handleOrientation);
-    };
-  }, []);
-
-  // Set meta tags for "Desktop" scaling feel on mobile
-  useEffect(() => {
-    if (isMobile) {
-      let meta = document.querySelector('meta[name="viewport"]');
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('name', 'viewport');
-        document.head.appendChild(meta);
-      }
-      meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover');
-    }
-  }, [isMobile]);
-
   const toggleFullscreen = useCallback(() => {
+    if (isInstalledDisplay()) return;
     if (!document.fullscreenElement) {
       const elem = document.documentElement as any;
       const request = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
       if (request) {
-        request.call(elem).catch(() => {});
+        Promise.resolve(request.call(elem)).catch(() => {});
       }
-      setIsFullscreen(true);
     } else {
       const exit = document.exitFullscreen || (document as any).webkitExitFullscreen || (document as any).mozCancelFullScreen || (document as any).msExitFullscreen;
       if (exit) {
         exit.call(document);
       }
-      setIsFullscreen(false);
     }
   }, []);
-
-  // Force fullscreen on immediate load (might be blocked by browser) and listener as fallback
-  useEffect(() => {
-    if (isStandalone) return;
-
-    const triggerFullscreen = () => {
-      if (!document.fullscreenElement) {
-        toggleFullscreen();
-      }
-    };
-    
-    // Attempt immediate
-    triggerFullscreen();
-
-    // Fallback listeners
-    window.addEventListener('click', triggerFullscreen);
-    window.addEventListener('touchstart', triggerFullscreen);
-    return () => {
-      window.removeEventListener('click', triggerFullscreen);
-      window.removeEventListener('touchstart', triggerFullscreen);
-    };
-  }, [toggleFullscreen, isStandalone]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -2478,7 +2008,6 @@ export default function App() {
   }, []);
 
   const [isInitializingGame, setIsInitializingGame] = useState(false);
-  const [assetsLoaded, setAssetsLoaded] = useState(false);
   const [playerCount, setPlayerCount] = useState(4);
   const [botConfig, setBotConfig] = useState<boolean[]>(Array(6).fill(false));
   const [mapType, setMapType] = useState<MapType>('archipelago');
@@ -2623,7 +2152,8 @@ export default function App() {
     const handleResize = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
-      setWindowSize({ width, height });
+      if (document.activeElement?.matches('input, textarea, [contenteditable="true"]')) return;
+      setWindowSize(previous => previous.width === width && previous.height === height ? previous : { width, height });
       
       // Force panels to always show
       setShowLeftPanel(true);
@@ -2777,6 +2307,16 @@ export default function App() {
   }, [rulesActiveView]);
 
   const [profileActiveView, setProfileActiveView] = useState<'menu' | string>('menu');
+  useBackHandler(showPwaGuide, () => { setShowPwaGuide(false); return true; }, 120);
+  useBackHandler(showSoundModal, () => { setShowSoundModal(false); return true; }, 110);
+  useBackHandler(!!confirmAction, () => { setConfirmAction(null); return true; }, 150);
+  useBackHandler(showDissolveRoomConfirm, () => { setShowDissolveRoomConfirm(false); return true; }, 140);
+  useBackHandler(showReserveRoomModal, () => { setShowReserveRoomModal(false); return true; }, 130);
+  useBackHandler(showExitOptions, () => { setShowExitOptions(false); return true; }, 100);
+  useBackHandler(showMapGenerator, () => { setShowMapGenerator(false); return true; }, 100);
+  useBackHandler(showMapAlbum, () => { setShowMapAlbum(false); return true; }, 90);
+  useBackHandler(showPlayerTradeModal, () => { setShowPlayerTradeModal(false); return true; }, 100);
+  useBackHandler(showTradeModal, () => { setShowTradeModal(false); return true; }, 100);
   const profileActiveViewRef = useRef(profileActiveView);
   useEffect(() => {
     profileActiveViewRef.current = profileActiveView;
@@ -2785,10 +2325,13 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Push state to protect the stack
-    window.history.pushState({ preventBack: true }, "");
+    if (!window.history.state?.catanApp) {
+      window.history.replaceState({ ...window.history.state, catanBase: true }, '');
+      window.history.pushState({ catanApp: true }, '');
+    }
 
     const performAppBackAction = () => {
+      if (runTopBackHandler()) return true;
       // 1. In game
       if (gameStartedRef.current) {
         if (showSoundModalRef.current) {
@@ -2862,62 +2405,66 @@ export default function App() {
       return false;
     };
 
+    let lastEdgeBack = 0;
     const handlePopState = () => {
-      // Re-push state immediately to block navigation
-      window.history.pushState({ preventBack: true }, "");
-      performAppBackAction();
+      if (!window.history.state?.catanApp) window.history.pushState({ catanApp: true }, '');
+      if (performance.now() - lastEdgeBack > 400) performAppBackAction();
     };
-
-    window.addEventListener("popstate", handlePopState);
-
-    // Active touch interceptor near screen edges to block swipe-to-back/forward gesture on iOS and Android
-    let startX = 0;
-    let startY = 0;
-    let isEdgeTouch = false;
-    let isLeftEdgeBackTouch = false;
-
-    const handleTouchStart = (e) => {
-      const touch = e.touches[0];
-      if (!touch) return;
-      startX = touch.clientX;
-      startY = touch.clientY;
-      const edgeThreshold = 40; // Pixels from left/right edges
-      isEdgeTouch = startX < edgeThreshold || startX > (window.innerWidth - edgeThreshold);
-      isLeftEdgeBackTouch = startX < edgeThreshold;
+    const appBack = () => { performAppBackAction(); };
+    const suppressClick = (event: MouseEvent) => {
+      if (shouldSuppressGestureClick()) { event.preventDefault(); event.stopImmediatePropagation(); }
     };
-
-    const handleTouchMove = (e) => {
-      if (isEdgeTouch) {
-        // Prevent default swipe-back or pull-to-navigate gestures
-        if (e.cancelable) {
-          e.preventDefault();
-        }
+    let edge: { x: number; y: number; id: number; horizontal: boolean; cancelled: boolean } | null = null;
+    const cancelEdge = () => { edge = null; };
+    const handleTouchStart = (event: TouchEvent) => {
+      edge = null;
+      if (event.touches.length !== 1) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('input,textarea,select,button,[role="slider"],[data-no-back],canvas')) return;
+      const canGoBack = hasBackHandler() || !gameStartedRef.current && (activeLobbyTabRef.current !== 'lobby' || isJoinedLobbyRef.current || !!roomStateRef.current);
+      const touch = event.touches[0];
+      if (!canGoBack || touch.clientX > 32) return;
+      edge = { x: touch.clientX, y: touch.clientY, id: touch.identifier, horizontal: false, cancelled: false };
+      if (event.cancelable) event.preventDefault();
+    };
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!edge || edge.cancelled) return;
+      if (event.touches.length !== 1) { cancelEdge(); return; }
+      const touch = event.touches[0];
+      const dx = touch.clientX - edge.x;
+      const dy = touch.clientY - edge.y;
+      if (!edge.horizontal && Math.max(Math.abs(dx), Math.abs(dy)) > 8) {
+        edge.horizontal = dx > Math.abs(dy) * 1.2;
+        edge.cancelled = !edge.horizontal;
       }
+      if (edge.horizontal && event.cancelable) event.preventDefault();
     };
-    
-    const handleTouchEnd = (e) => {
-      if (!isLeftEdgeBackTouch) return;
-      const touch = e.changedTouches[0];
-      if (!touch) return;
-
-      const deltaX = touch.clientX - startX;
-      const deltaY = touch.clientY - startY;
-      if (deltaX > 48 && Math.abs(deltaY) < 80) {
+    const handleTouchEnd = (event: TouchEvent) => {
+      const gesture = edge;
+      edge = null;
+      if (!gesture || gesture.cancelled) return;
+      const touch = [...event.changedTouches].find(item => item.identifier === gesture.id);
+      if (touch && touch.clientX - gesture.x >= 48 && Math.abs(touch.clientY - gesture.y) < 60) {
+        lastEdgeBack = performance.now();
+        suppressGestureClick();
         performAppBackAction();
       }
-      isEdgeTouch = false;
-      isLeftEdgeBackTouch = false;
     };
-
-    window.addEventListener("touchstart", handleTouchStart, { passive: false });
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
-    window.addEventListener("touchend", handleTouchEnd, { passive: true });
-
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('catan:back', appBack);
+    window.addEventListener('click', suppressClick, true);
+    window.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', cancelEdge);
     return () => {
-      window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("touchstart", handleTouchStart);
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('catan:back', appBack);
+      window.removeEventListener('click', suppressClick, true);
+      window.removeEventListener('touchstart', handleTouchStart, true);
+      window.removeEventListener('touchmove', handleTouchMove, true);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', cancelEdge);
       if (backToastTimeoutRef.current) {
         clearTimeout(backToastTimeoutRef.current);
       }
@@ -3874,39 +3421,11 @@ export default function App() {
     }
   }, [gameState?.tradeOffers, botProcessorId, roomState?.roomId]);
 
-  useEffect(() => {
-    const imagesToPreload = [
-      'https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/catan_logo.png',
-      FOREST_IMG, FIELDS_IMG, PASTURE_IMG, Desert_IMG, Mountains_IMG,
-      'https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/%E8%B5%84%E6%BA%90%E5%8D%A1.png', // Icon Lumber (resource mapping)
-      'https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/%E5%8F%91%E5%B1%95%E5%8D%A1.png', // Icon Dev
-      'https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/%E9%81%93%E8%B7%AF.png'  // Icon Road
-    ];
-    
-    let loadedCount = 0;
-    imagesToPreload.forEach(src => {
-      const img = new window.Image();
-      img.src = src;
-      img.onload = () => {
-        loadedCount++;
-        if (loadedCount === imagesToPreload.length) {
-          setAssetsLoaded(true);
-        }
-      };
-      img.onerror = () => {
-        loadedCount++;
-        if (loadedCount === imagesToPreload.length) {
-          setAssetsLoaded(true);
-        }
-      };
-    });
-  }, []);
-
   const handleStartGame = async () => {
     setIsStartingGame(true);
     sailingStartTimeRef.current = performance.now();
     setSailingText("正在驶入海域......");
-    setShowSailingScreen(true);
+    setShowSailingScreen(shouldShowAssetLoadingScreen());
     // Yield to the browser so the Sailing screen renders before blocking
     await new Promise(resolve => setTimeout(resolve, 50));
     
@@ -4034,7 +3553,7 @@ export default function App() {
     padding: 0
   };
 
-  if (isAuthLoading || !isAuthAnimFinished) {
+  if (isAuthLoading) {
     return (
       <SailingLoadingScreen 
         key="auth-loading-sailing" 
@@ -4042,7 +3561,8 @@ export default function App() {
           if (!isAuthLoading) setIsAuthAnimFinished(true);
         }} 
         text="正在驶入海域......" 
-        loop={isAuthLoading} 
+        loop={isAuthLoading}
+        loadAssets={false}
       />
     );
   }
@@ -4150,18 +3670,9 @@ export default function App() {
   const renderNonGameWrapper = (content: React.ReactNode) => {
     return (
       <div 
-        style={{ 
-          width: '100%', 
-          height: '100%', 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          overflow: 'hidden'
-        }} 
-        className="bg-slate-50"
+        className="app-screen app-safe-top bg-slate-50"
       >
         {content}
-        {renderGameModals()}
       </div>
     );
   };
@@ -4171,22 +3682,30 @@ export default function App() {
   if (!roomState && !isJoinedLobby) {
     mainContent = renderNonGameWrapper(
       <div 
-        onTouchStart={handleLobbyTouchStart}
-        onTouchMove={handleLobbyTouchMove}
-        onTouchEnd={handleLobbyTouchEnd}
+        onTouchStart={lobbySwipe.onTouchStart}
+        onTouchMove={lobbySwipe.onTouchMove}
+        onTouchEnd={lobbySwipe.onTouchEnd}
+        onTouchCancel={lobbySwipe.onTouchCancel}
+        data-lobby-tabs={activeLobbyTab}
+        style={{ touchAction: 'pan-y' }}
         className="flex flex-col h-full w-full bg-slate-50 font-sans relative overflow-hidden text-slate-900"
       >
         <div
+          data-lobby-panels
           style={{
             width: '400%',
             display: 'flex',
-            height: '100%',
-            transform: `translate3d(calc(-${['lobby', 'rooms', 'profile', 'rules'].indexOf(activeLobbyTab) * 25}% + ${lobbyDragOffset}px), 0, 0)`,
-            transition: isLobbyDragging ? 'none' : 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+            flex: '1 1 0%',
+            minHeight: 0,
+            transform: `translate3d(calc(-${['lobby', 'rooms', 'profile', 'rules'].indexOf(activeLobbyTab) * 25}% + ${lobbySwipe.offset}px), 0, 0)`,
+            transition: lobbySwipe.dragging ? 'none' : 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
           {/* Tab 1: lobby */}
-          <div className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
+          <div inert={activeLobbyTab !== 'lobby'} aria-hidden={activeLobbyTab !== 'lobby'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
+            {!isStandalone && document.fullscreenEnabled && <button onClick={toggleFullscreen} title={isFullscreen ? '退出全屏' : '全屏'} aria-label={isFullscreen ? '退出全屏' : '全屏'} className="absolute top-3 right-3 z-30 p-2 rounded-lg text-slate-500 hover:bg-white">
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>}
             <motion.div 
               initial={{ opacity: 0, y: 10 }} 
               animate={{ opacity: 1, y: 0 }}
@@ -4252,7 +3771,7 @@ export default function App() {
 
                       const newUrl = new URL(window.location.href);
                       newUrl.searchParams.set('room', targetRoom);
-                      window.history.replaceState({}, '', newUrl.pathname + newUrl.search);
+                      window.history.replaceState(window.history.state, '', newUrl.pathname + newUrl.search);
 
                       setIsJoinedLobby(true);
                       socketService.connect();
@@ -4271,8 +3790,8 @@ export default function App() {
           </div>
 
           {/* Tab 2: rooms */}
-          <div className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
-             <div className="w-full h-full flex flex-col items-center justify-center p-6">
+          <div inert={activeLobbyTab !== 'rooms'} aria-hidden={activeLobbyTab !== 'rooms'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
+             <div className="w-full h-full flex flex-col items-center px-6 pt-2 pb-4 sm:p-6">
                <GameRoomsTab 
                  currentUser={currentUser} 
                  isRoomLocked={isRoomLocked}
@@ -4318,14 +3837,16 @@ export default function App() {
           </div>
 
           {/* Tab 3: profile */}
-          <div className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
-            <div className="w-full h-full flex flex-col relative pb-16 overflow-hidden">
+          <div inert={activeLobbyTab !== 'profile'} aria-hidden={activeLobbyTab !== 'profile'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
+            <div className="w-full h-full flex flex-col relative overflow-hidden">
               <UserProfileModal
                 currentUser={currentUser}
                 onClose={() => {}}
                 onUpdateSuccess={(updatedUser) => setCurrentUser(updatedUser)}
                 onLogout={handleFullLogout}
                 inline={true}
+                isActive={activeLobbyTab === 'profile'}
+                disableHistory={true}
                 onRestoreGame={handleRestoreGame}
                 activeView={profileActiveView}
                 onActiveViewChange={setProfileActiveView}
@@ -4334,14 +3855,14 @@ export default function App() {
           </div>
 
           {/* Tab 4: rules */}
-          <div className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
-            <div className="w-full h-full flex flex-col relative pb-16 overflow-hidden">
-              <RulesModal isOpen={true} onClose={() => {}} inline={true} activeView={rulesActiveView} onActiveViewChange={setRulesActiveView} />
+          <div inert={activeLobbyTab !== 'rules'} aria-hidden={activeLobbyTab !== 'rules'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
+            <div className="w-full h-full flex flex-col relative overflow-hidden">
+              <RulesModal isOpen={true} isActive={activeLobbyTab === 'rules'} onClose={() => {}} inline={true} activeView={rulesActiveView} onActiveViewChange={setRulesActiveView} />
             </div>
           </div>
         </div>
         {/* Bottom Tab Bar */}
-        <div className="absolute bottom-0 left-0 w-full bg-white/95 backdrop-blur-xl border-t border-slate-100 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] px-6 flex justify-center gap-10 sm:gap-16 z-50">
+        <div className="lobby-tab-bar shrink-0 w-full bg-white border-t border-slate-100 pt-1.5 px-6 flex justify-center gap-10 sm:gap-16 z-50">
            <button
              onClick={() => setActiveLobbyTab('lobby')}
              className={`flex flex-col items-center gap-0 transition-all ${activeLobbyTab === 'lobby' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
@@ -4532,7 +4053,7 @@ export default function App() {
                     <>
                       <div className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center relative mb-0.5">
                         {!atlasLogoError ? (
-                          <img 
+                          <SmartImg 
                             src={MAP_ALBUM_ICON} 
                             className="w-full h-full object-contain relative z-10" 
                             alt="Atlas" 
@@ -4906,7 +4427,7 @@ export default function App() {
     mainContent = (
       <>
         <div style={lockedLandscapeStyle}>
-          <div className="flex flex-col items-center justify-center h-full w-full bg-sky-100 text-[#0c4a6e] relative overflow-hidden" onClick={() => { if (!isStandalone) document.documentElement.requestFullscreen().catch(() => {}); }}>
+          <div className="flex flex-col items-center justify-center h-full w-full bg-sky-100 text-[#0c4a6e] relative overflow-hidden" >
             {/* Ocean atmosphere */}
             <div className="absolute inset-0 bg-white/40 pointer-events-none" />
             
@@ -5080,7 +4601,7 @@ export default function App() {
                       )}
                       {gameState.longestRoadPlayerId === p.id && (
                         <div className="flex items-center justify-center px-0.5 py-[1px] rounded-sm bg-[#b79148]/20 border border-[#b79148]/40 shadow-sm" title={`最长道路 (${p.longestRoadLength})`}>
-                          <img src={ROAD_ICON} alt="longest-road" className="w-2.5 h-2.5 object-contain" />
+                          <SmartImg src={ROAD_ICON} alt="longest-road" className="w-2.5 h-2.5 object-contain" />
                         </div>
                       )}
                       {gameState.largestArmyPlayerId === p.id && (
@@ -5099,15 +4620,15 @@ export default function App() {
                     <div className="flex items-center mt-0.5 leading-none">
                       <span className={`${isMobile ? 'text-[8px]' : 'text-[10px]'} font-bold opacity-80 whitespace-nowrap`}>{publicScore}/{gameState.mapType === 'standard' ? 10 : 14}分</span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="资源">
-                        <img src={RES_CARD_ICON} alt="res" className="w-2.5 h-2.5 object-contain" />
+                        <SmartImg src={RES_CARD_ICON} alt="res" className="w-2.5 h-2.5 object-contain" />
                         {resourceCount}
                       </span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="发展卡">
-                        <img src={DEV_CARD_ICON} alt="dev" className="w-2.5 h-2.5 object-contain" />
+                        <SmartImg src={DEV_CARD_ICON} alt="dev" className="w-2.5 h-2.5 object-contain" />
                         {p.devCards.length + (p.devCardsBoughtThisTurn?.length || 0) + p.playedDevCards.length}
                       </span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="最长道路">
-                        <img src={ROAD_ICON} alt="road" className="w-2.5 h-2.5 object-contain" />
+                        <SmartImg src={ROAD_ICON} alt="road" className="w-2.5 h-2.5 object-contain" />
                         {p.longestRoadLength}
                       </span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="骑士">
@@ -6379,7 +5900,7 @@ export default function App() {
                       setRoomState(null);
                       syncGameState(null as any);
                       setGameStarted(false);
-                      window.history.replaceState({}, '', window.location.pathname);
+                      window.history.replaceState(window.history.state, '', window.location.pathname);
                       setShowDissolveRoomConfirm(false);
                     }}
                     className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer pointer-events-auto shadow-sm"
@@ -7470,8 +6991,8 @@ export default function App() {
       return point;
     }}>
       <>
-        {mainContent}
-        {showSailingScreen && (
+        {gameStarted && roomState ? <AssetGate onCancel={handleReturnToLobby} onReady={() => setShowSailingScreen(false)}>{mainContent}</AssetGate> : mainContent}
+        {showSailingScreen && !(gameStarted && roomState) && (
           <SailingLoadingScreen 
             key="sailing-loader" 
             onComplete={() => {
@@ -7479,7 +7000,7 @@ export default function App() {
                 setShowSailingScreen(false);
               }
             }} 
-            onCancel={() => setShowSailingScreen(false)}
+            onCancel={() => { setShowSailingScreen(false); handleReturnToLobby(); }}
             text={sailingText} 
           />
         )}

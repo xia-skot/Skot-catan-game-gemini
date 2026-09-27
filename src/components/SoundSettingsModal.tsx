@@ -194,7 +194,7 @@ export function SoundSettingsModal({ isOpen, onClose, isAdmin = false, inline = 
       {/* BGM Slider */}
             {isIOS && (
         <div className="text-[9px] sm:text-[10px] text-orange-500 bg-orange-50 p-2 rounded-lg mb-2 text-left leading-relaxed">
-          <span className="font-bold">🍎 苹果设备提示：</span><br/>由于 iOS 系统限制，网页无法直接调节音量大小。请使用手机侧边的<b>实体音量按键</b>来控制声音大小。此处滑块仅供参考。
+          <span className="font-bold">苹果设备音量：</span><br/>音效可通过滑块调节；背景音乐音量可能受系统限制，请配合手机侧边的<b>实体音量按键</b>调整。
         </div>
       )}
       <div className={`space-y-1.5 transition-all duration-300 ${enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>

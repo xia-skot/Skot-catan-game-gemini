@@ -1,3 +1,4 @@
+import { SmartImage } from './SmartImage';
 import React, { useState } from 'react';
 import { ResourceType } from '../types';
 import { RESOURCE_ICONS } from '../images';
@@ -37,7 +38,7 @@ export const GoldSelectionPanel: React.FC<GoldSelectionPanelProps> = ({ bankReso
         <div className="grid grid-cols-5 gap-1">
           {Object.values(ResourceType).map(res => (
             <div key={`gold-${res}`} className="p-0.5 sm:p-1 py-1 border border-slate-200/80 rounded-xl bg-slate-50/50 flex flex-col items-center justify-between gap-0.5">
-              <img src={RESOURCE_ICONS[res]} className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 object-contain mb-0.5" alt={RESOURCE_NAMES[res]} referrerPolicy="no-referrer" />
+              <SmartImage src={RESOURCE_ICONS[res]} className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 object-contain mb-0.5" alt={RESOURCE_NAMES[res]} referrerPolicy="no-referrer" />
               <div className="flex items-center gap-0.5 w-full justify-between px-0.5">
                 <button 
                   disabled={selections[res] <= 0}

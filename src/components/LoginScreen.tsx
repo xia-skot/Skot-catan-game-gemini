@@ -1,3 +1,5 @@
+import { CATAN_LOGO_IMG } from '../images';
+import { SmartImage } from './SmartImage';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, User, Lock, ArrowRight, Loader2, Database, RotateCcw, X, Sparkles } from 'lucide-react';
@@ -201,7 +203,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       >
         <div className="text-center mb-8">
           <div className="w-16 h-16 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center shadow-inner border border-slate-100">
-            <img src="https://fastly.jsdelivr.net/gh/xia-skot/Catan_Pics/img/catan_logo.png" alt="Logo" className="w-10 h-10 object-contain drop-shadow-lg" />
+            <SmartImage src={CATAN_LOGO_IMG} alt="Logo" className="w-10 h-10 object-contain drop-shadow-lg" />
           </div>
           <h1 className="text-2xl font-serif font-black italic mb-1 text-slate-800 tracking-tight">CATAN</h1>
           <p className="text-[10px] uppercase tracking-[0.4em] opacity-40 font-black text-indigo-900">Professional Online Edition</p>

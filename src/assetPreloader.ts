@@ -1,147 +1,58 @@
-import { ALL_GAME_IMAGES, SAILING_BOAT_IMG, CATAN_LOGO_IMG } from './images';
+import { ALL_GAME_IMAGES } from './images';
 import { audioService } from './audioService';
-import { loadGameImage } from './imageManager';
+import { clearImageCache, getCachedImageElement, loadGameImage } from './imageManager';
+import { clearMediaCache } from './assetCache';
 
 type ProgressCallback = (progressPercent: number, label: string) => void;
-type PreloadOptions = {
-  includeAudio?: boolean;
-};
+export type PreloadResult = { ready: boolean; loaded: string[]; failed: string[] };
+type PreloadOptions = { includeAudio?: boolean; signal?: AbortSignal };
+let activePreload: Promise<PreloadResult> | null = null;
+const listeners = new Set<ProgressCallback>();
+let resetTask: Promise<void> | null = null;
 
-let isPreloaded = false;
-let isPreloading = false;
-let activePreloadPromise: Promise<void> | null = null;
-let currentProgress = 0;
-let currentLabel = '资源加载中...';
-const progressListeners: ProgressCallback[] = [];
+export const checkIsAssetsCached = () => ALL_GAME_IMAGES.every(src => !!getCachedImageElement(src));
+export const shouldShowAssetLoadingScreen = () => !checkIsAssetsCached();
+export const isResetCacheRequested = () => new URLSearchParams(window.location.search).has('resetcache');
 
-const CACHE_KEY = 'catan_assets_cached_v5';
-
-export function isResetCacheRequested(): boolean {
-  try {
-    return typeof window !== 'undefined' && window.location.search.toLowerCase().includes('resetcache');
-  } catch {
-    return false;
-  }
+export async function clearAssetsCache(): Promise<void> {
+  if (activePreload) await activePreload;
+  clearImageCache();
+  await clearMediaCache();
 }
 
-export function shouldShowAssetLoadingScreen(): boolean {
-  if (isPreloaded) return false;
-  if (isResetCacheRequested()) return true;
-  try {
-    return localStorage.getItem(CACHE_KEY) !== 'true';
-  } catch {
-    return true;
-  }
-}
-
-export function checkIsAssetsCached(): boolean {
-  try {
-    if (isResetCacheRequested()) {
-      clearAssetsCache();
-      return false;
-    }
-  } catch {}
-  if (isPreloaded) return true;
-  try {
-    return localStorage.getItem(CACHE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-export function clearAssetsCache(): void {
-  isPreloaded = false;
-  try {
-    localStorage.removeItem(CACHE_KEY);
-  } catch {}
-}
-
-export async function preloadAllAssets(
-  onProgress?: ProgressCallback,
-  options: PreloadOptions = {}
-): Promise<void> {
-  const isAlreadyCached = checkIsAssetsCached();
-  const includeAudio = options.includeAudio === true;
-
-  if (onProgress) {
-    progressListeners.push(onProgress);
-    if (isPreloading) {
-      onProgress(currentProgress, currentLabel);
-    }
-  }
-
-  if (isPreloading) return activePreloadPromise || Promise.resolve();
-  isPreloading = true;
-
-  const broadcastProgress = (percent: number, label: string) => {
-    currentProgress = percent;
-    currentLabel = label;
-    progressListeners.forEach(fn => {
-      try {
-        fn(percent, label);
-      } catch (e) {}
-    });
+export function preloadAllAssets(onProgress?: ProgressCallback, options: PreloadOptions = {}): Promise<PreloadResult> {
+  if (onProgress && !options.signal?.aborted) listeners.add(onProgress);
+  const unsubscribe = () => { if (onProgress) listeners.delete(onProgress); };
+  options.signal?.addEventListener('abort', unsubscribe, { once: true });
+  const notify = () => {
+    const loaded = ALL_GAME_IMAGES.filter(src => getCachedImageElement(src)).length;
+    const percent = Math.floor(loaded / ALL_GAME_IMAGES.length * 100);
+    const label = loaded === ALL_GAME_IMAGES.length ? '贴图已就绪' : `正在补齐贴图（${loaded}/${ALL_GAME_IMAGES.length}）`;
+    listeners.forEach(fn => { try { fn(percent, label); } catch {} });
   };
-
-  activePreloadPromise = (async () => {
-    const baseProgress = isAlreadyCached ? 70 : 5;
-    const progressRange = isAlreadyCached ? 29 : 94;
-
-    // Priority load sailboat and logo first
-    broadcastProgress(baseProgress, isAlreadyCached ? '正在唤醒本地贴图...' : '正在初始化关键动画资源...');
-    await Promise.allSettled([
-      loadGameImage(SAILING_BOAT_IMG),
-      loadGameImage(CATAN_LOGO_IMG),
-    ]);
-
-    const totalImages = ALL_GAME_IMAGES.length;
-    const totalAudio = includeAudio ? 6 : 0;
-    const totalAssets = totalImages + totalAudio;
-
-    let loadedAssets = 0;
-
-    const notifyProgress = (label: string) => {
-      loadedAssets++;
-      const percent = Math.min(99, Math.round(baseProgress + (loadedAssets / totalAssets) * progressRange));
-      broadcastProgress(percent, label);
-    };
-
-    // Preload and decode all images into RAM. The localStorage flag only means the
-    // browser likely has disk cache; each page open still needs decoded Image objects
-    // before Konva can draw texture fills without blank frames.
-    const imagePromises = ALL_GAME_IMAGES.map((src) => {
-      return loadGameImage(src)
-        .then(() => {
-          notifyProgress(isAlreadyCached ? '正在恢复游戏贴图...' : '正在加载游戏贴图与图标...');
-        })
-        .catch((err) => {
-          console.warn(`[AssetPreloader] Warning loading image ${src}:`, err);
-          notifyProgress(isAlreadyCached ? '正在恢复游戏贴图...' : '正在加载游戏贴图与图标...');
-        });
-    });
-
-    const assetPromises: Promise<unknown>[] = [...imagePromises];
-
-    if (includeAudio) {
-      assetPromises.push(audioService.preloadAllAudio(() => {
-        notifyProgress('正在预缓存音频与音效...');
-      }).catch(() => {}));
-    } else {
-      audioService.preloadAllAudio().catch(() => {});
+  if (!activePreload) {
+    if (isResetCacheRequested() && !resetTask) {
+      clearImageCache();
+      resetTask = clearMediaCache();
+      const url = new URL(location.href);
+      url.searchParams.delete('resetcache');
+      history.replaceState(history.state, '', url);
     }
-
-    await Promise.allSettled(assetPromises);
-
-    isPreloaded = true;
-    try {
-      localStorage.setItem(CACHE_KEY, 'true');
-    } catch {}
-
-    broadcastProgress(100, '所有资源预加载完成');
-  })().finally(() => {
-    isPreloading = false;
-    activePreloadPromise = null;
+    activePreload = (async () => {
+      if (resetTask) await resetTask;
+      notify();
+      const results = await Promise.allSettled(ALL_GAME_IMAGES.map(src => loadGameImage(src).finally(notify)));
+      const loaded = ALL_GAME_IMAGES.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = ALL_GAME_IMAGES.filter((_, i) => results[i].status === 'rejected');
+      return { ready: failed.length === 0, loaded, failed };
+    })().finally(() => { activePreload = null; });
+  }
+  notify();
+  const audio = audioService.preloadAllAudio();
+  const result = options.includeAudio ? activePreload.then(async result => { await audio; return result; }) : activePreload;
+  void audio.catch(() => {});
+  return result.finally(() => {
+    unsubscribe();
+    options.signal?.removeEventListener('abort', unsubscribe);
   });
-
-  return activePreloadPromise;
 }
