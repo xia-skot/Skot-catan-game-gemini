@@ -10,6 +10,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
+import { registerAnnouncementEditingRoutes } from './server/announcementRoutes';
 import assetManifest from './src/assetManifest.json';
 import { applySettingsPatch, getRoomController, getSetupSlots } from './shared/roomSetup';
 import { normalizeBotDifficulty } from './shared/botDifficulty';
@@ -504,6 +505,7 @@ async function startServer() {
 
         return {
           id: m._id.toString(),
+          revision: m.revision || 1,
           title: m.title,
           content: m.content,
           type: m.type || (m.targetUserId ? 'private' : 'system'),
@@ -644,6 +646,7 @@ async function startServer() {
   });
 
   registerMessageDeletionRoutes(app, authMiddleware, () => messagesCollection);
+  registerAnnouncementEditingRoutes(app, authMiddleware, adminMiddleware, () => messagesCollection);
 
   app.delete('/api/admin/messages/:id', authMiddleware, adminMiddleware, async (req, res) => {
     try {

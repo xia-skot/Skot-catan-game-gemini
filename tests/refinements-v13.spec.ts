@@ -59,7 +59,7 @@ test('notices omit redundant badges and times; history summary stays frozen', as
   await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
   await page.getByText('系统消息', { exact: true }).click();
   await expect(page.getByText('系统公告', { exact: true })).toHaveCount(0);
-  const notice = page.locator('h4').filter({ hasText: '海域公告' }).first();
+  const notice = page.locator('[data-system-announcements]').getByText('海域公告', { exact: true });
   await expect(notice).toHaveCSS('font-weight', '700');
   await page.screenshot({ path: info.outputPath('notices.png') });
   await page.evaluate(() => history.back());

@@ -69,12 +69,14 @@ scripts/prepare-original-icons.ps1
 scripts/sync-assets.mjs
 scripts/sync-assets.ps1
 server.ts
+server/announcementRoutes.ts
 server/leaderboard.ts
 server/leaderboardDemo.ts
 server/leaderboardRecording.ts
 server/leaderboardRoutes.ts
 server/messageRoutes.ts
 shared/botDifficulty.ts
+shared/gameResult.ts
 shared/leaderboard.ts
 shared/roomSetup.ts
 src/App.tsx
@@ -102,6 +104,7 @@ src/components/SaveMapConfirmModal.tsx
 src/components/SmartImage.tsx
 src/components/SoundSettingsModal.tsx
 src/components/StartupScreen.tsx
+src/components/SystemAnnouncements.tsx
 src/components/UserProfileModal.tsx
 src/constants.ts
 src/demo/bootstrap.ts
@@ -121,6 +124,8 @@ src/types.ts
 src/useCatanGame.ts
 src/useLobbySwipe.ts
 src/vite-env.d.ts
+tests/announcement-editing.test.ts
+tests/announcements-v14.spec.ts
 tests/bot-strategy.test.ts
 tests/chat-v6.spec.ts
 tests/edge-cases.spec.ts

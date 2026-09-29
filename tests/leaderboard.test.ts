@@ -18,6 +18,24 @@ function game(patch: Record<string, any> = {}): Record<string, any> {
 }
 const board = (games: any[], accounts = users, month = '2026-09', count = 20) => buildMonthlyLeaderboard(games, accounts, month, count, NOW);
 
+test('legacy score breakdowns and history award the same monthly points', () => {
+  const scores = [[14, 10], [15, 10, 2], [15, 4]];
+  const records = scores.map((values, index) => game({ roomId: `screenshot-${index}`, mapType: 'archipelago',
+    players: values.map((total, id) => ({ id, name: id === 0 ? 'A' : `AI ${id}`, isBot: id !== 0,
+      score: id === 0 ? 10 : total,
+      breakdown: { settlements: id === 0 ? total : 0, cities: 0, longestRoad: false, largestArmy: false, vpCards: 0, islandBonus: 0 } })) }));
+  const row = board(records).entries[0];
+  assert.deepEqual([row.points, row.gameCount, row.wins], [7, 3, 3]);
+});
+
+test('a corrected complete breakdown governs ranking while malformed details cannot inflate a score', () => {
+  const record = game();
+  record.players[1].breakdown = { settlements: 1, cities: 3, longestRoad: true, largestArmy: false, vpCards: 1, islandBonus: 0 };
+  assert.deepEqual(board([record]).entries.map(row => [row.userId, row.points]), [['0', 4], ['1', 4], ['2', 2], ['3', 1]]);
+  record.players[1].breakdown.cities = '999';
+  assert.equal(board([record]).entries.find(row => row.userId === '1')!.points, 3);
+});
+
 test('N - strictly higher participants awards tied high positions, and monthly ranks tie', () => {
   const result = board([game()]);
   assert.deepEqual(result.entries.map(row => [row.points, row.rank]), [[4, 1], [3, 2], [3, 2], [1, 4]]);

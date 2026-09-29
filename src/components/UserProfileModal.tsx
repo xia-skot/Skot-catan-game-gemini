@@ -5,9 +5,11 @@ import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3,
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { Leaderboard } from './Leaderboard';
+import { SystemAnnouncements } from './SystemAnnouncements';
+import { recordedPlayerScore, resultRankPoints } from '../../shared/gameResult';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
-import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds } from '../messageReadState';
+import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds, messageReadKey } from '../messageReadState';
 import { MESSAGE_DISPLAY_EVENT, conversationIsHidden, hideMessageConversations, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay } from '../localMessageDisplay';
 
 function UnreadBadge({ count }: { count: number }) {
@@ -210,6 +212,8 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   currentAccountRef.current = account;
   const [messageSnapshot, setMessageSnapshot] = useState<{ account: string; messages: any[] }>({ account, messages: [] });
   const messages = React.useMemo(() => messageSnapshot.account === account ? messageSnapshot.messages : [], [messageSnapshot, account]);
+  const latestMessagesRef = useRef(messages);
+  latestMessagesRef.current = messages;
   const setMessages = useCallback((update: React.SetStateAction<any[]>) => {
     setMessageSnapshot(previous => {
       const before = previous.account === account ? previous.messages : [];
@@ -219,7 +223,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   const [displaySnapshot, setDisplaySnapshot] = useState(() => ({ account, state: readMessageDisplay(account) }));
   const displayState = displaySnapshot.account === account ? displaySnapshot.state : readMessageDisplay(account);
   const [displayNotice, setDisplayNotice] = useState('');
-  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
 
   const [replyText, setReplyText] = useState('');
@@ -465,14 +468,17 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   const markMessagesAsRead = useCallback((ids: string[]) => {
     if (!ids || ids.length === 0) return;
     const idSet = new Set(ids);
-    markMessagesRead(currentUser?.username || 'user', ids);
+    markMessagesRead(currentUser?.username || 'user', ids.map(id => {
+      const message = latestMessagesRef.current.find(item => item.id === id);
+      return message ? messageReadKey(message) : id;
+    }));
     setMessages(prev => prev.map(m => idSet.has(m.id) ? { ...m, read: true } : m));
   }, [currentUser?.username, setMessages]);
 
   useEffect(() => {
     const syncRead = () => {
       const ids = readMessageIds(currentUser?.username || 'user');
-      setMessages(previous => previous.map(message => ids.has(message.id) ? { ...message, read: true } : message));
+      setMessages(previous => previous.map(message => ({ ...message, read: ids.has(messageReadKey(message)) })));
     };
     window.addEventListener(MESSAGE_READ_EVENT, syncRead);
     window.addEventListener('storage', syncRead);
@@ -523,7 +529,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       if (currentAccountRef.current !== account) return;
       if (data?.messages) {
         const readMsgs = readMessageIds(currentUser?.username || 'user');
-        setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(m.id) })));
+        setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(messageReadKey(m)) })));
       }
       if (data?.adminUsername) {
         setAdminUsername(data.adminUsername);
@@ -619,9 +625,16 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     }
   };
 
-  const [adminMsgTitle, setAdminMsgTitle] = useState('');
-  const [adminMsgContent, setAdminMsgContent] = useState('');
-  const [adminMsgLoading, setAdminMsgLoading] = useState(false);
+  const publishAnnouncement = async (draft: { id?: string; title: string; content: string; revision?: number }) => {
+    const res = await fetch(draft.id ? `/api/admin/messages/${draft.id}` : '/api/admin/messages', {
+      method: draft.id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('catan_auth_token')}` },
+      body: JSON.stringify({ title: draft.title, content: draft.content, revision: draft.revision, targetUserId: null })
+    });
+    const data = await safeFetchJson(res);
+    if (!res.ok || !data?.success || !data.message) throw new Error(data?.error || '公告发布失败');
+    setMessages(previous => [data.message, ...previous.filter(message => message.id !== data.message.id)]);
+  };
 
   const [aboutInfo, setAboutInfo] = useState<{ content: string; updatedAt: string }>({ content: '', updatedAt: '' });
   const [aboutLoading, setAboutLoading] = useState(false);
@@ -1015,7 +1028,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       </div>}
 
       <div 
-        className={`flex-1 min-h-0 no-scrollbar relative p-4 max-w-2xl w-full mx-auto touch-pan-y ${activeView === 'history' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto space-y-4'}`}
+        className={`flex-1 min-h-0 no-scrollbar relative p-4 ${activeView === 'messages' ? '' : 'max-w-2xl'} w-full mx-auto touch-pan-y ${activeView === 'history' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto space-y-4'}`}
         style={{ overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}
       >
         {activeView === 'edit' && (
@@ -1311,14 +1324,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                   ) : (
                     games.map((g, i) => {
                       const calcTotalScore = (p: any) => {
-                        const setPts = (p.breakdown?.settlements || 0) * 1;
-                        const cityPts = p.breakdown?.cities ? p.breakdown.cities * 2 : 0;
-                        const roadPts = p.breakdown?.longestRoad ? 2 : 0;
-                        const armyPts = p.breakdown?.largestArmy ? 2 : 0;
-                        const vpCardsPts = p.breakdown?.vpCards || 0;
-                        const islandPts = p.breakdown?.islandBonus || 0;
-                        const breakdownSum = setPts + cityPts + roadPts + armyPts + vpCardsPts + islandPts;
-                        return Math.max(p.score || 0, breakdownSum);
+                        return recordedPlayerScore(p) ?? 0;
                       };
                       const sortedPlayers = [...(g.players || [])].sort((a, b) => calcTotalScore(b) - calcTotalScore(a));
                       const isWin = isGameWin(g, currentUser?.username);
@@ -1355,7 +1361,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                   return (
                                     <tr key={idx} className={`${isWinner ? 'bg-yellow-50/30' : ''}`}>
                                       <td className="py-2 px-2 text-center font-black text-slate-400">
-                                        {1 + sortedPlayers.filter(other => calcTotalScore(other) > calcTotalScore(p)).length}
+                                        {resultRankPoints(sortedPlayers, p).rank}
                                       </td>
                                       <td className="py-2 px-2 font-bold text-slate-700 whitespace-nowrap">
                                         {p.name} {isWinner && '👑'}
@@ -1367,7 +1373,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                       <td className="py-2 px-2 text-center">{p.breakdown?.largestArmy ? 2 : 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.vpCards || 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.islandBonus || 0}</td>
-                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{sortedPlayers.length - sortedPlayers.filter(other => calcTotalScore(other) > calcTotalScore(p)).length}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{resultRankPoints(sortedPlayers, p).points}</td>
                                     </tr>
                                   );
                                 })}
@@ -1385,152 +1391,8 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         )}
         
         {activeView === 'messages' && (
-          <AnimatePresence mode="wait">
-            <motion.div
-              key="messages"
-              initial={inline ? false : { opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-4 font-sans"
-            >
-              {/* System Messages Card */}
-              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col min-h-[320px]">
-                <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
-                  <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                    <Bell size={16} className="text-indigo-500" /> 系统公告与通知
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    {systemUnreadCount > 0 && (
-                      <button 
-                        onClick={() => {
-                          markMessagesAsRead(systemMsgs.filter(m => !m.read).map(m => m.id));
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all flex items-center gap-1 text-xs font-bold"
-                        title="标记系统消息为已读"
-                      >
-                        <span className="text-[11px]">一键已读</span>
-                      </button>
-                    )}
-                    <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                      {systemMsgs.length} 条
-                    </span>
-                  </div>
-                </div>
-                
-                {systemMsgs.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-xs font-medium border border-dashed border-slate-100 rounded-2xl bg-slate-50/50 py-12">
-                    <Bell className="w-8 h-8 opacity-30 text-indigo-400 mb-2" />
-                    <p>暂无系统公告或系统通知</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-                    {systemMsgs.map((msg) => {
-                      const isExpanded = expandedMessageId === msg.id;
-                      return (
-                        <div 
-                          key={msg.id} 
-                          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${msg.read ? 'bg-slate-50/80 border-slate-100' : 'bg-white border-indigo-100 shadow-xs'}`}
-                          onClick={() => {
-                            setExpandedMessageId(isExpanded ? null : msg.id);
-                            if (!msg.read) markMessageAsRead(msg.id);
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <div className={`w-2 h-2 rounded-full shrink-0 ${msg.read ? 'bg-transparent' : 'bg-red-500'}`} />
-                              <h4 className="text-xs font-bold text-slate-800 break-words">
-                                {msg.title}
-                              </h4>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">{msg.date?.split(/[ T]/)[0]}</span>
-                              {currentUser?.role === 'admin' && (
-                                <button
-                                  onClick={(e) => handleDeleteMessage(e, msg.id)}
-                                  className="p-1 text-slate-300 hover:text-red-500 rounded-lg transition-colors"
-                                  title="删除此条消息"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <AnimatePresence>
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0, marginTop: 0 }}
-                                animate={{ height: 'auto', opacity: 1, marginTop: 8 }}
-                                exit={{ height: 0, opacity: 0, marginTop: 0 }}
-                                className="overflow-hidden"
-                              >
-                                <p className="text-xs leading-relaxed text-slate-600 pl-3 border-l-2 border-indigo-200 bg-slate-50/50 p-2.5 rounded-r-xl whitespace-pre-wrap">
-                                  {msg.content}
-                                </p>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {currentUser?.role === 'admin' && (
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-2.5">
-                    <h4 className="text-xs font-bold text-slate-800">发布全服系统消息</h4>
-                    <input 
-                      type="text"
-                      placeholder="标题"
-                      value={adminMsgTitle}
-                      onChange={(e) => setAdminMsgTitle(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-700 font-medium outline-none focus:border-indigo-500 transition-all"
-                    />
-                    <textarea 
-                      placeholder="内容"
-                      value={adminMsgContent}
-                      onChange={(e) => setAdminMsgContent(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-700 font-medium outline-none focus:border-indigo-500 transition-all resize-none min-h-[70px]"
-                    />
-                    <button 
-                      disabled={!adminMsgTitle.trim() || !adminMsgContent.trim() || adminMsgLoading}
-                      onClick={() => {
-                        setAdminMsgLoading(true);
-                        fetch('/api/admin/messages', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${localStorage.getItem('catan_auth_token')}`
-                          },
-                          body: JSON.stringify({ 
-                            title: adminMsgTitle, 
-                            content: adminMsgContent,
-                            targetUserId: null
-                          })
-                      })
-                      .then(safeFetchJson)
-                      .then(data => {
-                        if (data?.success) {
-                          setMessages([data.message, ...messages]);
-                          setAdminMsgTitle('');
-                          setAdminMsgContent('');
-                        } else {
-                          alert(data?.error || '发布失败');
-                        }
-                      })
-                        .catch(() => alert('发布失败，请检查网络'))
-                        .finally(() => setAdminMsgLoading(false));
-                      }}
-                      className="w-full bg-indigo-600 text-white font-bold text-xs py-2 rounded-xl shadow-xs hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {adminMsgLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      发布全服消息
-                    </button>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </AnimatePresence>
+          <SystemAnnouncements messages={systemMsgs} loading={messagesLoading} isAdmin={isAdmin} isActive={isActive}
+            onRead={markMessageAsRead} onDelete={handleDeleteMessage} onPublish={publishAnnouncement} />
         )}
 
         {/* Dedicated QQ-Style Private Chat View */}

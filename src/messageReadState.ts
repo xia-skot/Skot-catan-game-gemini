@@ -1,6 +1,10 @@
 const memory = new Map<string, Set<string>>();
 export const MESSAGE_READ_EVENT = 'catan:messages-read';
 
+export function messageReadKey(message: { id: string; revision?: number }): string {
+  return message.revision && message.revision > 1 ? `${message.id}:r${message.revision}` : message.id;
+}
+
 export function readMessageIds(username = 'user'): Set<string> {
   try {
     const stored = JSON.parse(localStorage.getItem(`catan_read_msgs_${username}`) || '[]');
