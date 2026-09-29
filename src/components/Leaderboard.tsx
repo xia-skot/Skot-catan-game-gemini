@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, RotateCw, Trophy } from 'lucide-react';
-import { monthBounds, shanghaiMonth, shiftMonth, type MonthlyLeaderboard } from '../../shared/leaderboard';
+import { LEADERBOARD_SCORING_VERSION, monthBounds, shanghaiMonth, shiftMonth, type MonthlyLeaderboard } from '../../shared/leaderboard';
 import { safeFetchJson } from '../fetchUtils';
 
 export interface LeaderboardProps { onBack?: () => void }
@@ -22,10 +22,11 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
     (async () => {
       try {
         const response = await fetch(`/api/leaderboard?month=${encodeURIComponent(month)}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal, cache: 'no-store',
         });
         const result = await safeFetchJson<MonthlyLeaderboard & { error?: string }>(response);
         if (!response.ok) throw new Error(result.error || '排行榜加载失败');
+        if (result.scoringVersion !== LEADERBOARD_SCORING_VERSION) throw new Error('服务器计分版本尚未更新，请管理员检查 Render 部署是否完成。');
         if (!Array.isArray(result.entries) || result.month !== month) throw new Error('排行榜数据暂时不可用');
         if (!controller.signal.aborted) setData(result);
       } catch (failure) {
@@ -79,6 +80,13 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
                 </tr>)}</tbody>
               </table>}
       </div>
+      {!!data?.myGames?.length && <details className="border-t border-slate-200 pt-3 text-xs">
+        <summary className="cursor-pointer font-medium py-2">我的本月积分：{data.myGames.reduce((sum, game) => sum + game.points, 0)}</summary>
+        <ul className="divide-y divide-slate-100">{data.myGames.map((game, index) => <li key={index} className="flex flex-wrap justify-between gap-2 py-3">
+          <span>ID: {game.roomId} · {new Date(game.completedAt).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}</span>
+          <span>{game.playerCount} 人局 · 第 {game.rank} 名 · +{game.points} 分</span>
+        </li>)}</ul>
+      </details>}
     </section>
   );
 }

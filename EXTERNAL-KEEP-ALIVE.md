@@ -1,5 +1,7 @@
 # 无人访问时的外部保活
 
+v15 新增 Cloudflare Worker 保活，自动跟随按旬配置的游戏站，详见 [入口部署说明](GATEWAY-DEPLOYMENT.md)。需要配置 Worker 绑定、Secret、KEEP_ALIVE=true 和定时触发器。验证成功后，可暂停下述 GitHub 工作流，避免继续请求固定旧站。尚未部署 Worker 时可继续使用原方案。
+
 这份定时任务由 GitHub 的服务器运行，每 5 分钟访问一次
 `https://skot-game.onrender.com/api/health`。
 不要求浏览器打开，不要求有保留房间，也不要求你的电脑开机。

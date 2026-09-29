@@ -26,6 +26,10 @@ test('legacy score breakdowns and history award the same monthly points', () => 
       breakdown: { settlements: id === 0 ? total : 0, cities: 0, longestRoad: false, largestArmy: false, vpCards: 0, islandBonus: 0 } })) }));
   const row = board(records).entries[0];
   assert.deepEqual([row.points, row.gameCount, row.wins], [7, 3, 3]);
+  const response = buildMonthlyLeaderboard(records, users, '2026-09', 20, NOW, '0');
+  assert.deepEqual(response.myGames?.map(game => game.points), [2, 3, 2]);
+  assert.equal(response.myGames?.reduce((sum, game) => sum + game.points, 0), row.points);
+  assert.equal(response.scoringVersion, 'rank-points-v15');
 });
 
 test('a corrected complete breakdown governs ranking while malformed details cannot inflate a score', () => {

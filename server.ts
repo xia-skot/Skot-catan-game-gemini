@@ -11,6 +11,8 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import { registerAnnouncementEditingRoutes } from './server/announcementRoutes';
+import { registerGatewayRoutes } from './server/gatewayRoutes';
+import { LEADERBOARD_SCORING_VERSION } from './shared/leaderboard';
 import assetManifest from './src/assetManifest.json';
 import { applySettingsPatch, getRoomController, getSetupSlots } from './shared/roomSetup';
 import { normalizeBotDifficulty } from './shared/botDifficulty';
@@ -164,12 +166,15 @@ async function startServer() {
   });
 
   // API routes FIRST
+  registerGatewayRoutes(app, authMiddleware, adminMiddleware, { demo: DEMO_MODE,
+    url: process.env.GATEWAY_URL, token: process.env.GATEWAY_ADMIN_TOKEN });
   registerLeaderboardRoutes(app, authMiddleware, adminMiddleware, demoLeaderboard?.store || mongoLeaderboardStore(() => ({
     games: gamesCollection, users: usersCollection, settings: aboutCollection,
   })));
   if (demoLeaderboard) app.get('/api/admin/stats', authMiddleware, adminMiddleware, (_req, res) => res.json(demoLeaderboard.stats()));
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ status: 'ok', version: 'v15', scoringVersion: LEADERBOARD_SCORING_VERSION });
   });
 
   app.get('/api/db-status', (req, res) => {

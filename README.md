@@ -1,5 +1,7 @@
 # 卡坦岛完整项目
 
+当前完整包为 v15。独立入口、管理员分旬网址配置和积分核对步骤见 [入口部署说明](GATEWAY-DEPLOYMENT.md)。
+
 完整上传、Render 配置和本轮加载修复请查看 [部署说明](DEPLOYMENT.md)。
 
 本机安装依赖：`npm ci --include=dev`。

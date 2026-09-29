@@ -12,6 +12,10 @@ demo/server.ts
 DEPLOYMENT-ASSET-CHECK.json
 DEPLOYMENT.md
 EXTERNAL-KEEP-ALIVE.md
+GATEWAY-DEPLOYMENT.md
+gateway/worker.js
+gateway/worker.ts
+gateway/wrangler.jsonc
 index.html
 metadata.json
 MOBILE-FIX-NOTES.md
@@ -70,6 +74,7 @@ scripts/sync-assets.mjs
 scripts/sync-assets.ps1
 server.ts
 server/announcementRoutes.ts
+server/gatewayRoutes.ts
 server/leaderboard.ts
 server/leaderboardDemo.ts
 server/leaderboardRecording.ts
@@ -77,6 +82,7 @@ server/leaderboardRoutes.ts
 server/messageRoutes.ts
 shared/botDifficulty.ts
 shared/gameResult.ts
+shared/gateway.ts
 shared/leaderboard.ts
 shared/roomSetup.ts
 src/App.tsx
@@ -90,6 +96,7 @@ src/components/AssetGate.tsx
 src/components/ErrorBoundary.tsx
 src/components/GameOverModal.tsx
 src/components/GameRoomsTab.tsx
+src/components/GatewaySettings.tsx
 src/components/GoldSelectionPanel.tsx
 src/components/Leaderboard.tsx
 src/components/LoginScreen.tsx
@@ -129,6 +136,8 @@ tests/announcements-v14.spec.ts
 tests/bot-strategy.test.ts
 tests/chat-v6.spec.ts
 tests/edge-cases.spec.ts
+tests/gateway-v15.spec.ts
+tests/gateway.test.ts
 tests/leaderboard-ui.spec.ts
 tests/leaderboard.test.ts
 tests/messages.spec.ts

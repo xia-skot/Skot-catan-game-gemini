@@ -54,6 +54,7 @@ test('updated announcements become unread and the back gesture closes detail bef
   await expect(page.getByText('海域公告更新', { exact: true })).toBeVisible({ timeout: 10000 });
   await expect(page.locator('[data-system-announcements]').getByLabel('未读')).toHaveCount(1);
   await page.getByText('海域公告更新', { exact: true }).click();
-  await page.getByRole('button', { name: '返回公告列表', exact: true }).click();
+  await expect(page.locator('[data-announcement-detail] button')).toHaveCount(0);
+  await page.locator('[data-page-header]').getByTitle('返回', { exact: true }).click();
   await expect(page.locator('[data-system-announcements]').getByLabel('未读')).toHaveCount(0);
 });

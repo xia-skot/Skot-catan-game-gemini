@@ -47,10 +47,6 @@ export function SystemAnnouncements({ messages, loading, isAdmin, isActive, onRe
   </>;
   return <section className="w-full min-w-0 text-slate-800" data-system-announcements>
     {selected ? <article data-announcement-detail>
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <button type="button" onClick={() => setSelectedId(null)} title="返回公告列表" aria-label="返回公告列表" className="p-2 -ml-2 text-slate-500"><ArrowLeft size={18} /></button>
-        <div className="flex items-center">{tools(selected)}</div>
-      </div>
       <h2 className="text-lg font-bold break-words">{selected.title}</h2>
       <p className="text-xs text-slate-400 mt-2 mb-6">{selected.date?.split(/[ T]/)[0]}</p>
       <div className="text-sm leading-7 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selected.content}</div>
