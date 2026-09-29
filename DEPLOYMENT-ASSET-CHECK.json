@@ -1,0 +1,346 @@
+{
+  "checkedAt": "2026-09-29T05:19:47.702Z",
+  "origin": "https://catan-game02.onrender.com",
+  "shell": {
+    "path": "/",
+    "status": 200,
+    "type": "text/html; charset=UTF-8",
+    "bytes": 3486,
+    "milliseconds": 708,
+    "cache": "public, max-age=0"
+  },
+  "assets": [
+    {
+      "path": "/assets/images/9c10e69dede3f223.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 6934,
+      "milliseconds": 764,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/75febb91ca062200.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 24689,
+      "milliseconds": 904,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/20c1f87935003727.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 7864,
+      "milliseconds": 1415,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/468b07de565166f8.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 15136,
+      "milliseconds": 585,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/06a64ccea3d266aa.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 55042,
+      "milliseconds": 1645,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/57b5e4f67f64fb70.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 9948,
+      "milliseconds": 268,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/a544de723c948b71.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 9329,
+      "milliseconds": 1070,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/22b52e481306dee9.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 16189,
+      "milliseconds": 450,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/0459f6e935de49ef.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 9678,
+      "milliseconds": 644,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/425bd8634d623393.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 82651,
+      "milliseconds": 1440,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/0d0267027f48905a.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 31631,
+      "milliseconds": 1267,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/1fb95a3a5b7eeaec.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 58977,
+      "milliseconds": 1059,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/41bc9631c8e2a00a.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 24447,
+      "milliseconds": 1105,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/8cc875eaa9aa1903.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 57221,
+      "milliseconds": 1994,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/fd454c0184d15e17.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 194197,
+      "milliseconds": 3898,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/3207da26006fb7f3.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 15310,
+      "milliseconds": 687,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/72f3e74e4a1550ee.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 8852,
+      "milliseconds": 751,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/ba5cd74d428aff17.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 7728,
+      "milliseconds": 313,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/6cb4adc6dcf02a33.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 4184,
+      "milliseconds": 680,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/828ffdaeee241e80.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 6086,
+      "milliseconds": 1296,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/4a77d45cd4d83302.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 5906,
+      "milliseconds": 700,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/5ae2fb998018d302.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 6482,
+      "milliseconds": 650,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/5ddcdde99515471a.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 3337,
+      "milliseconds": 641,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/f00f01f3ed04988e.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 27735,
+      "milliseconds": 1526,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/9b8294313da37c33.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 529883,
+      "milliseconds": 8432,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/668de32cc5bf83f9.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 281969,
+      "milliseconds": 4279,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/ab0f163050be6460.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 47163,
+      "milliseconds": 3257,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/6a9ae7fcf8b61c7e.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 14310,
+      "milliseconds": 810,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/0822d57f2ec745be.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 9937,
+      "milliseconds": 852,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/b094a810f005c329.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 71116,
+      "milliseconds": 1395,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/e576109296be6e0e.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 11464,
+      "milliseconds": 737,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/8d3d9326340a8a93.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 57345,
+      "milliseconds": 2867,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/images/1daa842e0367792f.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 323684,
+      "milliseconds": 7439,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    },
+    {
+      "path": "/assets/audio/e74476e735256a80.mp3",
+      "status": 200,
+      "type": "audio/mpeg",
+      "bytes": 836612,
+      "milliseconds": 13202,
+      "cache": "public, max-age=31536000, immutable",
+      "matchesLocal": true
+    }
+  ],
+  "bundles": [
+    {
+      "path": "/assets/index-CL93Vx1j.js",
+      "status": 200,
+      "type": "application/javascript; charset=UTF-8",
+      "bytes": 220540,
+      "milliseconds": 689,
+      "cache": "public, max-age=0"
+    },
+    {
+      "path": "/assets/App-D2KI_OCY.js",
+      "status": 200,
+      "type": "application/javascript; charset=UTF-8",
+      "bytes": 957388,
+      "milliseconds": 1910,
+      "cache": "public, max-age=0"
+    },
+    {
+      "path": "/assets/index-j3kmidqC.css",
+      "status": 200,
+      "type": "text/css; charset=UTF-8",
+      "bytes": 104220,
+      "milliseconds": 1147,
+      "cache": "public, max-age=0"
+    }
+  ]
+}

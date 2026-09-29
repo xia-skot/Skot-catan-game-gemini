@@ -1,20 +1,13 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 卡坦岛完整项目
 
-# Run and deploy your AI Studio app
+完整上传、Render 配置和本轮加载修复请查看 [部署说明](DEPLOYMENT.md)。
 
-This contains everything you need to run your app locally.
+本机安装依赖：`npm ci --include=dev`。
 
-View your app in AI Studio: https://ai.studio/apps/20396bc9-ae1e-4795-8adb-db0233f695fa
+免配置演示：`npm run demo`，打开 `http://localhost:5174/demo.html`。
 
-## Run Locally
+正式构建：`npm run build`；正式运行：配置环境变量和 `NODE_ENV=production` 后执行 `npm start`。
 
-**Prerequisites:**  Node.js
+线上数据库和邮件配置继续使用 Render 中已有的值；`.env.example` 仅提供示例。
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+外部保活请查看 [保活说明](EXTERNAL-KEEP-ALIVE.md)。
