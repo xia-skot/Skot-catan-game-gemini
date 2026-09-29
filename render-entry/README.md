@@ -4,7 +4,7 @@
 
 ## 将现有 skot-game 服务改成入口
 
-1. 将本目录提交到游戏仓库，或把 `catan-render-entry-v1.zip` 解压到一个新的公开 GitHub 仓库根目录。
+1. 将本目录提交到游戏仓库，或把 `catan-render-entry-v2.zip` 解压到一个新的公开 GitHub 仓库根目录。
 2. 若继续使用完整游戏仓库，在 Render 的 `skot-game` 服务设置中把 Root Directory 改为 `render-entry`；若使用入口专用仓库，Root Directory 留空。
 3. Build Command 填 `npm install`，Start Command 填 `npm start`。
 4. 添加环境变量：
@@ -12,6 +12,8 @@
    - `FALLBACK_GAME_URL=https://skot-game01.onrender.com`
 5. 重新部署后打开 `/api/health`，应返回 `status: "ok"`，再打开首页检查跳转。
 
-玩家不直接访问 Cloudflare。入口由 Render 服务器读取 Cloudflare 路由配置，读取失败时自动跳到默认游戏站。
+玩家不直接访问 Cloudflare。入口由 Render 服务器读取 Cloudflare 路由配置，网络读取失败时使用默认游戏站；如果 Worker 明确返回没有符合带宽要求的站，则显示不可用，不绕过额度检查。游戏通过全屏页面运行，浏览器地址和桌面入口保持为 `https://skot-game.onrender.com`；每次重新打开入口都会重新选择当前游戏站。游戏资源仍由 `01/02/03` 游戏站直接传给浏览器，不经过入口转发。不同手机的桌面安装行为仍需实机验证。
+
+三个游戏站必须使用相同的 `MONGODB_URI` 和相同的强随机 `JWT_SECRET`。入口只同步服务器签发的登录令牌，不保存或传递账号密码；令牌有效期内切换游戏站无需重新登录，退出登录会同步清除入口令牌。
 
 重要：后台入口配置中的默认网址及三个分旬网址都必须填写真正的游戏站，不能填写 `https://skot-game.onrender.com`，否则入口会自动改用 `FALLBACK_GAME_URL` 防止循环。

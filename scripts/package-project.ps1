@@ -1,16 +1,18 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v15.zip'
+$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v16.zip'
 $directories = @('.github', 'app', 'demo', 'gateway', 'public', 'render-entry', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',
   'metadata.json', 'README.md', 'DEPLOYMENT.md', 'DEPLOYMENT-ASSET-CHECK.json',
-  'EXTERNAL-KEEP-ALIVE.md', 'GATEWAY-DEPLOYMENT.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md', 'BANDWIDTH-V13.json')
+  'EXTERNAL-KEEP-ALIVE.md', 'GATEWAY-DEPLOYMENT.md', 'BANDWIDTH-DEPLOYMENT.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md', 'BANDWIDTH-V13.json')
 foreach ($directory in $directories) {
   foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot $directory) -File -Recurse -Force) {
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked files are not included' }
-    $files += [IO.Path]::GetRelativePath($projectRoot, $file.FullName).Replace('\', '/')
+    $relative = [IO.Path]::GetRelativePath($projectRoot, $file.FullName).Replace('\', '/')
+    if ($relative.StartsWith('tests/generated-')) { continue }
+    $files += $relative
   }
 }
 $files = @($files | Sort-Object -Unique)
@@ -39,8 +41,8 @@ try {
 Get-Item -LiteralPath $archivePath | Select-Object FullName,Length
 Write-Output "Verified files: $($files.Count)"
 
-$gatewayArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-gateway-v15.zip'
-$gatewayFiles = @{'gateway/worker.js' = 'worker.js'; 'gateway/wrangler.jsonc' = 'wrangler.jsonc'; 'GATEWAY-DEPLOYMENT.md' = 'GATEWAY-DEPLOYMENT.md'}
+$gatewayArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-gateway-v16.zip'
+$gatewayFiles = @{'gateway/worker.js' = 'worker.js'; 'gateway/wrangler.jsonc' = 'wrangler.jsonc'; 'GATEWAY-DEPLOYMENT.md' = 'GATEWAY-DEPLOYMENT.md'; 'BANDWIDTH-DEPLOYMENT.md' = 'BANDWIDTH-DEPLOYMENT.md'}
 $gatewayZip = [IO.Compression.ZipArchive]::new([IO.File]::Open($gatewayArchivePath, [IO.FileMode]::CreateNew), [IO.Compression.ZipArchiveMode]::Create)
 try {
   foreach ($relative in $gatewayFiles.Keys) {
@@ -59,7 +61,7 @@ try {
 } finally { $gatewayCheck.Dispose(); $gatewaySha.Dispose() }
 Get-Item -LiteralPath $gatewayArchivePath | Select-Object FullName,Length
 
-$renderEntryArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-render-entry-v1.zip'
+$renderEntryArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-render-entry-v2.zip'
 $renderEntryFiles = @('package.json', 'server.js', 'server.test.js', 'render.yaml', 'README.md')
 $renderEntryZip = [IO.Compression.ZipArchive]::new([IO.File]::Open($renderEntryArchivePath, [IO.FileMode]::CreateNew), [IO.Compression.ZipArchiveMode]::Create)
 try {

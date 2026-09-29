@@ -5,6 +5,22 @@ export function registerGatewayRoutes(app: Express, authenticate: RequestHandler
   options: { demo?: boolean; url?: string; token?: string; fetcher?: typeof fetch } = {}) {
   let demoConfig = structuredClone(DEFAULT_GATEWAY_CONFIG);
   const configured = !!options.url && !!options.token && options.token.length >= 32;
+  const bandwidthHandler: RequestHandler = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!configured) return res.status(503).json({ error: '请先配置入口管理接口' });
+    try {
+      const base = new URL(options.url!);
+      if (base.protocol !== 'https:' || base.username || base.password || base.pathname !== '/' || base.search || base.hash) throw new Error('invalid URL');
+      const response = await (options.fetcher || fetch)(new URL('/api/admin/bandwidth', base), {
+        method: req.method, redirect: 'error', signal: AbortSignal.timeout(15000),
+        headers: { Authorization: `Bearer ${options.token}`, 'Content-Type': 'application/json' },
+        ...(req.method === 'PUT' ? { body: JSON.stringify({ id: req.body.id, usedGB: req.body.usedGB }) } : {}),
+      });
+      res.status(response.status).json(await response.json());
+    } catch { res.status(503).json({ error: '无法读取带宽信息，请确认 Worker 已更新' }); }
+  };
+  app.get('/api/admin/gateway/bandwidth', authenticate, requireAdmin, bandwidthHandler);
+  app.put('/api/admin/gateway/bandwidth', authenticate, requireAdmin, bandwidthHandler);
   const requestConfig = async (method: string, config?: unknown) => {
     const base = new URL(options.url!);
     if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/') throw new Error('入口网址配置不正确');

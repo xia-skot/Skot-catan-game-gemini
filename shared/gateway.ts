@@ -4,6 +4,7 @@ export interface GatewayConfig {
   enabled: boolean;
   fallback: string;
   sites: Record<GatewaySlot, string>;
+  bandwidth?: { enabled: boolean; quotaGB: number; reserveGB: number };
 }
 export const DEFAULT_GATEWAY_CONFIG: GatewayConfig = {
   enabled: false, fallback: 'https://skot-game01.onrender.com',
@@ -26,6 +27,14 @@ export function validateGatewayConfig(value: any): GatewayConfig {
   if (!value || typeof value.enabled !== 'boolean') throw new Error('请选择是否启用按旬切换');
   const config: GatewayConfig = { enabled: value.enabled, fallback: renderOrigin(value.fallback), sites: { early: '', middle: '', late: '' } };
   for (const slot of GATEWAY_SLOTS) config.sites[slot] = renderOrigin(value.sites?.[slot], !config.enabled);
+  if (value.bandwidth !== undefined) {
+    const b = value.bandwidth;
+    if (typeof b?.enabled !== 'boolean' || !Number.isFinite(b.quotaGB) || b.quotaGB <= 0 || b.quotaGB > 1000 ||
+        !Number.isFinite(b.reserveGB) || b.reserveGB < 0.1 || b.reserveGB >= b.quotaGB) throw new Error('请填写有效额度和预留流量');
+    config.bandwidth = { enabled: b.enabled, quotaGB: b.quotaGB, reserveGB: b.reserveGB };
+    if (b.enabled && GATEWAY_SLOTS.some(slot => !config.sites[slot])) throw new Error('请先填写三个游戏网址');
+  }
+  if ([config.fallback, ...Object.values(config.sites)].includes('https://skot-game.onrender.com')) throw new Error('游戏网址不能填写入口 skot-game，请填写带编号的游戏站');
   return config;
 }
 

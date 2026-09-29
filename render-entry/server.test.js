@@ -36,6 +36,12 @@ test('uses the fallback when the routing API is unavailable', async () => {
   assert.equal(target.origin, 'https://skot-game01.onrender.com');
 });
 
+test('does not fall back to an exhausted site after a bandwidth rejection', async () => {
+  await assert.rejects(resolveTarget('/', 'skot-game.onrender.com', {
+    config, fetcher: async () => Response.json({ code: 'BANDWIDTH_UNAVAILABLE' }, { status: 503 }),
+  }), /BANDWIDTH_UNAVAILABLE/);
+});
+
 test('entry health wakes the selected game service', async () => {
   const visited = [];
   const server = createServer({
@@ -52,6 +58,27 @@ test('entry health wakes the selected game service', async () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/api/health`);
     assert.equal(response.status, 200);
     assert.deepEqual(visited, ['https://game-early.onrender.com/api/health']);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('launcher keeps the entry URL and embeds the selected game', async () => {
+  const server = createServer({
+    config,
+    fetcher: async () => Response.json({ slot: 'late', origin: 'https://game-late.onrender.com' }),
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const response = await fetch(`http://127.0.0.1:${address.port}/?room=123456`);
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('location'), null);
+    assert.match(html, /iframe src="https:\/\/game-late\.onrender\.com\/\?room=123456"/);
+    const manifest = await (await fetch(`http://127.0.0.1:${address.port}/manifest.json`)).json();
+    assert.equal(manifest.start_url, '/');
+    assert.equal(manifest.scope, '/');
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
