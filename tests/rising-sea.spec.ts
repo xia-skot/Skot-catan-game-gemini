@@ -15,9 +15,15 @@ test('water follows progress, waves move while loading and freeze for sailing', 
   await expect(sea).toHaveAttribute('data-water-level', '0.8');
   const phase = await sea.getAttribute('data-wave-phase');
   await expect.poll(() => sea.getAttribute('data-wave-phase')).not.toBe(phase);
+  const startPhase = Number(await sea.getAttribute('data-wave-phase'));
+  await page.waitForTimeout(500);
+  expect(Number(await sea.getAttribute('data-wave-phase')) - startPhase).toBeGreaterThan(0.5);
   await page.screenshot({ path: info.outputPath('rising-water.png') });
   releaseAudio();
   await expect(sea).toHaveAttribute('data-water-level', '0.98');
+  const nearCompletePhase = Number(await sea.getAttribute('data-wave-phase'));
+  await page.waitForTimeout(500);
+  expect(Number(await sea.getAttribute('data-wave-phase')) - nearCompletePhase).toBeGreaterThan(0.5);
   releaseAccount();
   await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'sailing', { timeout: 20000 });
   await expect(sea).toHaveAttribute('data-water-level', '1');
