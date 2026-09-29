@@ -56,6 +56,12 @@ test('Worker protects config writes, persists outside Render and exposes only pu
   assert.equal((await worker.fetch(new Request('https://entry.example/missing'), env)).status, 404);
 });
 
+test('public entry falls back to the default game site when KV is not bound', async () => {
+  const response = await worker.fetch(new Request('https://entry.example/'), { GATEWAY_ADMIN_TOKEN: '' });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /skot-game01\.onrender\.com/);
+});
+
 test('Worker reports configuration storage failures without redirecting to a guessed destination', async () => {
   const env = environment();
   env.ROUTING.get = async () => { throw new Error('unavailable'); };
@@ -104,5 +110,8 @@ test('scheduled health checks are optional and do not download the game or stati
     await worker.scheduled({}, { ...env, KEEP_ALIVE: 'true' });
     assert.ok(visited.length >= 1 && visited.length <= 2);
     assert.ok(visited.every(url => /^https:\/\/(one|two|three)\.onrender\.com\/api\/health$/.test(url)));
+    visited.length = 0;
+    await worker.scheduled({}, { ...env, KEEP_ALIVE: 'true', ENTRY_ORIGIN: 'https://skot-game.onrender.com' });
+    assert.ok(visited.includes('https://skot-game.onrender.com/api/health'));
   } finally { globalThis.fetch = originalFetch; }
 });

@@ -65,6 +65,11 @@ public/icons/catan-original-v6-192.png
 public/icons/catan-original-v6-512.png
 public/manifest.json
 README.md
+render-entry/package.json
+render-entry/README.md
+render-entry/render.yaml
+render-entry/server.js
+render-entry/server.test.js
 render.yaml
 scripts/check-deployed-assets.mjs
 scripts/measure-bandwidth.mjs

@@ -28,7 +28,9 @@ Render 带宽按工作区统计。同一工作区里的三个服务不会变成�
 5. 在 Worker Settings 的 Variables and Secrets 添加 **Secret**：`GATEWAY_ADMIN_TOKEN`。值使用密码管理器生成的至少 32 个字符的随机字符串，自己保存。不要写进代码、GitHub、网址或公开截图。
 6. 添加普通变量 `KEEP_ALIVE`，值填 `true`。
 7. 添加 Cron Trigger：`*/5 * * * *`，即每五分钟执行一次。网页粘贴部署不会自动读取压缩包中的 `wrangler.jsonc`，所以必须手动添加绑定、Secret、普通变量和 Cron。
-8. 再次部署，打开 `https://你的入口/api/route`。未做管理员设置时，应返回默认站 `https://skot-game.onrender.com`；入口首页默认跳向这个站。
+8. 再次部署，打开 `https://你的入口/api/route`。未做管理员设置时，应返回默认游戏站 `https://skot-game01.onrender.com`。
+
+当前玩家入口改为 Render 的 `https://skot-game.onrender.com`。Cloudflare Worker 继续保存分旬配置并执行保活，但玩家无需直接访问 `workers.dev`。部署 `catan-render-entry-v1.zip` 后，在 Worker 增加普通变量 `ENTRY_ORIGIN=https://skot-game.onrender.com`，让定时任务同时唤醒入口；入口的健康检查会继续唤醒当前游戏站。
 
 如果 workers.dev 在玩家所在网络不可达，需要绑定玩家可访问的自定义域名后再使用。应先用实际手机网络测试，不要在未验证时替换所有入口。
 
