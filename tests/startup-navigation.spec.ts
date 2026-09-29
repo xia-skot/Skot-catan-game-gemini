@@ -8,8 +8,8 @@ test('failed audio never reports complete and retry downloads only that audio on
   await page.route('**' + missing, route => route.fulfill({ status: 503, contentType: 'text/plain', body: 'offline' }));
   await page.goto('/');
   await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'failed');
-  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '97');
-  await expect(page.locator('[data-lobby-tabs]')).toHaveCount(0);
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '95');
+  await expect(page.locator('[data-lobby-tabs]')).toBeHidden();
   await page.unroute('**' + missing);
   const requests: string[] = [];
   page.on('request', request => { if (/\/assets\/(images|audio)\//.test(request.url())) requests.push(request.url()); });

@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test';
+
+test('water follows progress, waves move while loading and freeze for sailing', async ({ page }, info) => {
+  let releaseAudio!: () => void;
+  let releaseAccount!: () => void;
+  const audio = new Promise<void>(resolve => { releaseAudio = resolve; });
+  const account = new Promise<void>(resolve => { releaseAccount = resolve; });
+  await page.route('**/assets/audio/**', async route => { await audio; await route.continue(); });
+  await page.route('**/api/me', async route => { await account; await route.continue(); });
+  await page.goto('/');
+  const sea = page.locator('[data-startup] [data-water-level]');
+  await expect(sea).toBeVisible();
+  const meter = page.getByRole('progressbar');
+  await expect(meter).toHaveAttribute('aria-valuenow', '80', { timeout: 30000 });
+  await expect(sea).toHaveAttribute('data-water-level', '0.8');
+  const phase = await sea.getAttribute('data-wave-phase');
+  await expect.poll(() => sea.getAttribute('data-wave-phase')).not.toBe(phase);
+  await page.screenshot({ path: info.outputPath('rising-water.png') });
+  releaseAudio();
+  await expect(sea).toHaveAttribute('data-water-level', '0.98');
+  releaseAccount();
+  await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'sailing', { timeout: 20000 });
+  await expect(sea).toHaveAttribute('data-water-level', '1');
+  const frozenPhase = await sea.getAttribute('data-wave-phase');
+  const frozenPath = await sea.locator('svg path').nth(1).getAttribute('d');
+  const boat = page.locator('[data-sailing-boat]');
+  const transform = await boat.evaluate(element => getComputedStyle(element).transform);
+  await page.waitForTimeout(500);
+  expect(await sea.getAttribute('data-wave-phase')).toBe(frozenPhase);
+  expect(await sea.locator('svg path').nth(1).getAttribute('d')).toBe(frozenPath);
+  expect(await boat.evaluate(element => getComputedStyle(element).transform)).not.toBe(transform);
+  await page.screenshot({ path: info.outputPath('frozen-water-sailing.png') });
+  await expect(page.locator('[data-lobby-tabs]')).toBeVisible({ timeout: 10000 });
+});

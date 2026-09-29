@@ -38,8 +38,10 @@ test('list clearing hides cards, chat retains records and Enter inserts a newlin
   await expect(page.getByText('历史战绩', { exact: true })).toBeVisible();
   await openList(page);
   await expect(page.locator('[data-conversation]')).toHaveCount(0);
-  await page.getByRole('button', { name: '已隐藏会话 (1)' }).click();
-  await page.getByRole('button', { name: '打开与肖隐弦的私信' }).click();
+  await expect(page.getByText(/已隐藏会话/)).toHaveCount(0);
+  const recipients = page.getByRole('combobox', { name: '选择玩家发起私信' });
+  await expect(recipients.locator('option')).toHaveCount(2);
+  await recipients.selectOption('肖隐弦');
   await expect(chat.getByText('第一行', { exact: false })).toBeVisible();
   const stored = await page.evaluate(async () => {
     const response = await fetch('/api/messages', { headers: { Authorization: `Bearer ${localStorage.getItem('catan_auth_token')}` } });
@@ -49,7 +51,7 @@ test('list clearing hides cards, chat retains records and Enter inserts a newlin
   expect(mutations).toEqual(['POST']);
 });
 
-test('crossing midnight always shows a date and each timestamp toggles its date', async ({ page }) => {
+test('all timestamps toggle together while the first message each day always retains its date', async ({ page }) => {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   await page.route('**/api/messages', async route => {
@@ -59,21 +61,30 @@ test('crossing midnight always shows a date and each timestamp toggles its date'
     data.messages = [
       { ...original, id: 'before-midnight', createdAt: midnight.getTime() - 15000, content: '昨天最后一条' },
       { ...original, id: 'after-midnight', createdAt: midnight.getTime() + 15000, content: '今天第一条' },
+      { ...original, id: 'today-second', createdAt: midnight.getTime() + 120000, content: '今天第二条' },
+      { ...original, id: 'today-third', createdAt: midnight.getTime() + 240000, content: '今天第三条' },
     ];
     await route.fulfill({ response, json: data });
   });
   await openList(page);
   await page.getByRole('button', { name: '打开与肖隐弦的私信' }).click();
   const times = page.locator('.chat-screen').getByRole('button', { name: '切换日期显示', exact: true });
-  await expect(times).toHaveCount(2);
+  await expect(times).toHaveCount(4);
   await expect(times.nth(1)).toHaveText(/\d{2}-\d{2} 00:00/);
-  await times.nth(1).click();
-  await expect(times.nth(1)).toHaveText('00:00');
+  await expect(times.nth(2)).toHaveText('00:02');
+  await expect(times.nth(3)).toHaveText('00:04');
   await times.nth(1).click();
   await expect(times.nth(1)).toHaveText(/\d{2}-\d{2} 00:00/);
+  await expect(times.nth(2)).toHaveText(/\d{2}-\d{2} 00:02/);
+  await expect(times.nth(3)).toHaveText(/\d{2}-\d{2} 00:04/);
+  await times.nth(3).click();
+  await expect(times.nth(0)).toHaveText(/\d{2}-\d{2} 23:59/);
+  await expect(times.nth(1)).toHaveText(/\d{2}-\d{2} 00:00/);
+  await expect(times.nth(2)).toHaveText('00:02');
+  await expect(times.nth(3)).toHaveText('00:04');
 });
 
-test('admin list clearing hides every card including players without messages', async ({ page }) => {
+test('admin can start conversations from the private list without a hidden-list interface', async ({ page }) => {
   await page.route('**/api/messages', async route => {
     const response = await route.fetch();
     const data = await response.json();
@@ -85,16 +96,20 @@ test('admin list clearing hides every card including players without messages', 
   await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
   await page.getByText('私信', { exact: true }).click();
   await expect(page.locator('[data-conversation]').first()).toBeVisible();
-  const count = await page.locator('[data-conversation]').count();
-  expect(count).toBeGreaterThan(1);
+  await expect(page.locator('[data-conversation="尚未聊天的玩家"]')).toHaveCount(0);
+  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('尚未聊天的玩家');
+  await expect(page.locator('.chat-screen')).toBeVisible();
+  await page.locator('.chat-screen').getByRole('button', { name: '返回', exact: true }).click();
+  await expect(page.locator('[data-conversation="尚未聊天的玩家"]')).toBeVisible();
   await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
   await expect(page.locator('[data-conversation]')).toHaveCount(0);
   await page.reload();
   await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
   await page.getByText('私信', { exact: true }).click();
   await expect(page.locator('[data-conversation]')).toHaveCount(0);
-  await page.getByRole('button', { name: `已隐藏会话 (${count})` }).click();
-  await expect(page.locator('[data-conversation]')).toHaveCount(count);
+  await expect(page.getByText(/已隐藏会话/)).toHaveCount(0);
+  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('尚未聊天的玩家');
+  await expect(page.locator('.chat-screen')).toBeVisible();
 });
 
 test('lobby profile and rules headers have the same height', async ({ page }) => {

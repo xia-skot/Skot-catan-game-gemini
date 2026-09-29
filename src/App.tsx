@@ -177,7 +177,6 @@ import { audioService } from './audioService';
 import { preloadAllAssets } from './assetPreloader';
 import { SailingTransition, SailingScene, LoadingDots } from './components/SailingScene';
 import { getSetupSlots, getRoomController } from '../shared/roomSetup';
-import { StartupScreen } from './components/StartupScreen';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
 import { useLobbySwipe } from './useLobbySwipe';
@@ -535,7 +534,7 @@ function SailingLoadingScreen({ onComplete, text = '正在驶入海域', loop = 
   return loadAssets ? <AssetGate onCancel={onCancel || onComplete}>{screen}</AssetGate> : screen;
 }
 
-export default function App() {
+export default function App({ onAccountReady }: { onAccountReady?: () => void }) {
   const [showSoundModal, setShowSoundModal] = useState(false);
   const robberDragControls = useDragControls();
   const playerTradeDragControls = useDragControls();
@@ -910,7 +909,7 @@ export default function App() {
   
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isAuthAnimFinished, setIsAuthAnimFinished] = useState(false);
+  useEffect(() => { if (!isAuthLoading) onAccountReady?.(); }, [isAuthLoading, onAccountReady]);
   const [gameStarted, setGameStarted] = useState(() => {
     return localStorage.getItem('catan_game_active') === 'true';
   });
@@ -3560,8 +3559,8 @@ export default function App() {
   };
 
   const exitToast = showBackInterceptToast ? <div role="status" className="exit-toast">再按一次返回键退出卡坦岛</div> : null;
-  if (!isAuthAnimFinished) {
-    return <><StartupScreen waitingForAccount={isAuthLoading} onComplete={() => setIsAuthAnimFinished(true)} />{exitToast}</>;
+  if (isAuthLoading) {
+    return null;
   }
 
   if (!currentUser) {

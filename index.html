@@ -14,7 +14,7 @@
   </head>
   <body class="notranslate bg-slate-50" translate="no">
     <div id="root">
-      <div style="position: absolute; inset: 0; overflow: hidden; background-color: #e1f0fa; color: white; font-family: sans-serif;">
+      <div style="position: absolute; inset: 0; overflow: hidden; background-color: #e1f0fa; color: #0c4a6e; font-family: sans-serif;">
         <svg id="boot-sea" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true"></svg>
         <div role="status" class="boot-caption">资源加载中<span class="boot-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
           <div class="boot-meter"><div></div></div>
@@ -39,10 +39,8 @@
       <script>
         // Match SailingScene's geometry before the application bundle is available.
         {
-          const w = innerWidth, h = innerHeight, portrait = w < h;
-          const wavelength = portrait ? w / 2 : w / 3.5;
-          const amplitude = Math.min(wavelength * (portrait ? .05 : .03), h * (portrait ? .02 : .03));
-          const y = x => Math.sin(x / wavelength * Math.PI * 2) * amplitude + h * .45;
+          const w = innerWidth, h = innerHeight;
+          const y = x => h;
           let line = `M0 ${y(0)}`;
           for (let x = 10; x < w; x += 10) line += ` L${x} ${y(x)}`;
           line += ` L${w} ${y(w)}`;

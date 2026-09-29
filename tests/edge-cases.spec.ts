@@ -8,7 +8,7 @@ test('failed texture blocks startup before the boat and only retries the missing
   await page.route('**' + missing, route => route.fulfill({ status: 503, contentType: 'text/plain', body: 'offline' }));
   await page.goto('/');
   await expect(page.getByRole('button', { name: '重试未完成资源', exact: true })).toBeVisible();
-  await expect(page.locator('[data-lobby-tabs]')).toHaveCount(0);
+  await expect(page.locator('[data-lobby-tabs]')).toBeHidden();
   await expect(page.locator('[data-startup]')).toHaveAttribute('data-startup', 'failed');
   await expect(page.locator('.startup-boat')).toHaveCount(0);
   expect(Number(await page.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(100);

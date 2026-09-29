@@ -129,9 +129,12 @@ tests/mobile-v5.spec.ts
 tests/mobile-v6.spec.ts
 tests/mobile.spec.ts
 tests/production.spec.ts
+tests/rising-sea.spec.ts
 tests/room-authority-v6.spec.ts
 tests/slow-assets.spec.ts
 tests/startup-navigation.spec.ts
+tests/startup-v10.spec.ts
+tests/startup-v9.spec.ts
 tsconfig.json
 vite.config.ts
 FULL-PACKAGE-FILES.txt
