@@ -1,12 +1,12 @@
 import {
   DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, LEADERBOARD_TIME_ZONE,
-  monthBounds, recordTime, type MonthlyLeaderboard,
+  monthBounds, recordTime, LEADERBOARD_SCORING_VERSION, type MonthlyLeaderboard, type LeaderboardGamePoints,
 } from '../shared/leaderboard';
 import { recordedPlayerScore, resultRankPoints } from '../shared/gameResult';
 
 type StoredDocument = Record<string, any>;
 interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null }
-interface EligibleGame { completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean }
+interface EligibleGame { roomId: string; completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean }
 export interface LeaderboardUserStats { totalGames: number; wins: number; winRate: number; recent3DayGames: number }
 
 const normalizeName = (value: string) => value.trim().toLowerCase();
@@ -40,7 +40,7 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
   const winner = players.find(player => player.id === winnerId);
   const target = record.mapType === 'standard' ? 10 : 14;
   if (!winner || winner.score < target || players.some(player => player.score > winner.score)) return null;
-  return { completedAt, winnerId: winner.id, players, stableIdentity };
+  return { roomId: String(record.roomId || ''), completedAt, winnerId: winner.id, players, stableIdentity };
 }
 
 /** Older records have no per-game ID. Collapse identical room outcomes conservatively. */
@@ -115,17 +115,21 @@ export function computeLeaderboardUserStats(records: readonly StoredDocument[], 
 }
 
 export function buildMonthlyLeaderboard(records: readonly StoredDocument[], users: readonly StoredDocument[],
-  month: string, topCount = DEFAULT_LEADERBOARD_TOP_COUNT, now = Date.now()): MonthlyLeaderboard {
+  month: string, topCount = DEFAULT_LEADERBOARD_TOP_COUNT, now = Date.now(), viewerId?: string): MonthlyLeaderboard {
   if (!isLeaderboardTopCount(topCount)) throw new Error('Invalid leaderboard top count');
   const { start, end } = monthBounds(month), resolve = accountResolver(users);
   const totals = new Map<string, { userId: string; username: string; points: number; gameCount: number; wins: number }>();
+  const myGames: LeaderboardGamePoints[] = [];
   // Deduplicate BEFORE the month filter so a retried write across midnight cannot score twice.
   for (const game of eligibleLeaderboardGames(records, now)) {
     if (game.completedAt < start || game.completedAt >= end) continue;
     for (const { user, player } of creditedPlayers(game, resolve)) {
       const userId = String(user!._id);
       const row = totals.get(userId) || { userId, username: user!.username, points: 0, gameCount: 0, wins: 0 };
-      row.points += resultRankPoints(game.players, player).points;
+      const award = resultRankPoints(game.players, player);
+      row.points += award.points;
+      if (userId === viewerId) myGames.push({ roomId: game.roomId, completedAt: new Date(game.completedAt).toISOString(),
+        rank: award.rank, playerCount: game.players.length, points: award.points });
       row.gameCount++;
       if (player.id === game.winnerId) row.wins++;
       totals.set(userId, row);
@@ -138,5 +142,6 @@ export function buildMonthlyLeaderboard(records: readonly StoredDocument[], user
     return { ...entry, rank, winRate: Math.round(100 * entry.wins / entry.gameCount) };
   });
   return { month, timeZone: LEADERBOARD_TIME_ZONE, topCount, totalPlayers: ordered.length,
-    entries, generatedAt: new Date(now).toISOString(), source: 'stored-client-results' };
+    entries, generatedAt: new Date(now).toISOString(), source: 'stored-client-results', scoringVersion: LEADERBOARD_SCORING_VERSION,
+    ...(viewerId ? { myGames: myGames.sort((a, b) => b.completedAt.localeCompare(a.completedAt)) } : {}) };
 }

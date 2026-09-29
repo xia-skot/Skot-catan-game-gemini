@@ -1,12 +1,12 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v14.zip'
-$directories = @('.github', 'app', 'demo', 'public', 'scripts', 'server', 'shared', 'src', 'tests')
+$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v15.zip'
+$directories = @('.github', 'app', 'demo', 'gateway', 'public', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',
   'metadata.json', 'README.md', 'DEPLOYMENT.md', 'DEPLOYMENT-ASSET-CHECK.json',
-  'EXTERNAL-KEEP-ALIVE.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md', 'BANDWIDTH-V13.json')
+  'EXTERNAL-KEEP-ALIVE.md', 'GATEWAY-DEPLOYMENT.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md', 'BANDWIDTH-V13.json')
 foreach ($directory in $directories) {
   foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot $directory) -File -Recurse -Force) {
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked files are not included' }
@@ -38,3 +38,23 @@ try {
 } finally { $check.Dispose(); $sha.Dispose() }
 Get-Item -LiteralPath $archivePath | Select-Object FullName,Length
 Write-Output "Verified files: $($files.Count)"
+
+$gatewayArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-gateway-v15.zip'
+$gatewayFiles = @{'gateway/worker.js' = 'worker.js'; 'gateway/wrangler.jsonc' = 'wrangler.jsonc'; 'GATEWAY-DEPLOYMENT.md' = 'GATEWAY-DEPLOYMENT.md'}
+$gatewayZip = [IO.Compression.ZipArchive]::new([IO.File]::Open($gatewayArchivePath, [IO.FileMode]::CreateNew), [IO.Compression.ZipArchiveMode]::Create)
+try {
+  foreach ($relative in $gatewayFiles.Keys) {
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($gatewayZip, (Join-Path $projectRoot $relative), $gatewayFiles[$relative], [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+  }
+} finally { $gatewayZip.Dispose() }
+$gatewayCheck = [IO.Compression.ZipFile]::OpenRead($gatewayArchivePath)
+$gatewaySha = [Security.Cryptography.SHA256]::Create()
+try {
+  if ($gatewayCheck.Entries.Count -ne $gatewayFiles.Count) { throw 'Gateway archive entry count differs' }
+  foreach ($relative in $gatewayFiles.Keys) {
+    $stream = $gatewayCheck.GetEntry($gatewayFiles[$relative]).Open()
+    try { $hash = [Convert]::ToHexString($gatewaySha.ComputeHash($stream)) } finally { $stream.Dispose() }
+    if ($hash -ne (Get-FileHash -LiteralPath (Join-Path $projectRoot $relative) -Algorithm SHA256).Hash) { throw 'Gateway archive verification failed' }
+  }
+} finally { $gatewayCheck.Dispose(); $gatewaySha.Dispose() }
+Get-Item -LiteralPath $gatewayArchivePath | Select-Object FullName,Length

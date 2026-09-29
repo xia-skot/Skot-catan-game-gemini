@@ -1,0 +1,8 @@
+{
+  "name": "catan-entry",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "kv_namespaces": [{ "binding": "ROUTING", "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }],
+  "vars": { "KEEP_ALIVE": "true" },
+  "triggers": { "crons": ["*/5 * * * *"] }
+}

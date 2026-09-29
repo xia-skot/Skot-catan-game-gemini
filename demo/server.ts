@@ -37,7 +37,7 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   app.get('/api/feedback/prompt', (_req, res) => res.json({ prompt: '演示反馈' }));
   app.post('/api/feedback', (_req, res) => res.json({ success: true }));
   app.use('/api', (req, res, next) => {
-    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats'];
+    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats', '/admin/gateway'];
     if (allowed.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'))) return next();
     res.status(403).json({ error: '此操作不在本地演示范围内' });
   });

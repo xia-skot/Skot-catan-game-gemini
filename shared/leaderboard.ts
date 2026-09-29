@@ -1,6 +1,15 @@
 export const LEADERBOARD_TIME_ZONE = 'Asia/Shanghai';
 export const DEFAULT_LEADERBOARD_TOP_COUNT = 20;
 export const MAX_LEADERBOARD_TOP_COUNT = 100;
+export const LEADERBOARD_SCORING_VERSION = 'rank-points-v15';
+
+export interface LeaderboardGamePoints {
+  roomId: string;
+  completedAt: string;
+  rank: number;
+  playerCount: number;
+  points: number;
+}
 
 export interface LeaderboardEntry {
   rank: number;
@@ -20,6 +29,8 @@ export interface MonthlyLeaderboard {
   entries: LeaderboardEntry[];
   generatedAt: string;
   source: 'stored-client-results';
+  scoringVersion: string;
+  myGames?: LeaderboardGamePoints[];
 }
 
 export type PlayerSortField = 'createdAt' | 'winRate' | 'totalGames' | 'recent3DayGames';

@@ -47,7 +47,7 @@ export function registerLeaderboardRoutes(app: Express, authenticate: RequestHan
     try {
       const [{ games, users }, count] = await Promise.all([store.readRecords(), topCount()]);
       res.setHeader('Cache-Control', 'no-store');
-      res.json(buildMonthlyLeaderboard(games, users, month, count, now()));
+      res.json(buildMonthlyLeaderboard(games, users, month, count, now(), String((req as any).user.userId || '')));
     } catch (error) {
       console.error('Read monthly leaderboard failed', error);
       res.status(503).json({ error: '排行榜暂时不可用，请稍后重试' });
