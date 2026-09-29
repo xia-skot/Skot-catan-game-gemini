@@ -63,6 +63,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
   return (
     <motion.div 
+      data-game-report
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
@@ -71,27 +72,6 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
       onClick={(e) => e.stopPropagation()}
       className="absolute inset-0 z-[100000] flex flex-col bg-stone-50 overflow-hidden w-full h-full pointer-events-auto select-none"
     >
-      {/* Header - More Compact */}
-      <div className="px-6 py-3.5 text-center bg-white border-b border-black/5 shrink-0 relative overflow-hidden flex items-center justify-between shadow-sm z-30">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-xl flex items-center justify-center shadow-md rotate-3 ring-2 ring-yellow-400/10 shrink-0">
-            <Trophy size={20} className="text-white drop-shadow-sm" />
-          </div>
-          <div className="text-left">
-            <h2 className="text-xl font-serif font-black italic tracking-tighter text-slate-900 leading-none">卡坦岛盛大闭幕</h2>
-            <p className="text-[10px] opacity-40 uppercase tracking-[0.2em] font-bold mt-0.5">The Golden Victory of Catan</p>
-          </div>
-        </div>
-
-        <button 
-          onClick={onReturnToMap}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors shrink-0 cursor-pointer"
-          title="关闭/查看地图"
-        >
-          <X size={20} />
-        </button>
-      </div>
-
       {/* Vertical & Horizontal Rankings Container */}
       <RotatedScroll 
         shouldApplyPortraitRotation={shouldApplyPortraitRotation}
@@ -101,7 +81,10 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           {/* Header Row */}
           {sortedPlayers.length > 0 && (
             <div className="sticky top-0 z-40 flex items-end mb-1 border-b border-black/5 pb-2 pt-3 bg-white">
-              <div className="sticky left-0 z-50 w-44 shrink-0 bg-white" />
+              <div className="sticky left-0 z-50 w-44 shrink-0 bg-white flex items-center gap-2 px-3 h-10">
+                <Trophy size={18} className="text-amber-600 shrink-0" />
+                <h2 className="text-base font-bold text-slate-900 whitespace-nowrap">本局战报</h2>
+              </div>
               <div className="grid grid-cols-6 items-center px-4 bg-white flex-1 min-w-[300px]">
                 {sortedPlayers[0].stats.vpBreakdown.map((item) => (
                   <div key={item.id} className="flex flex-col items-center justify-center gap-1">
@@ -112,7 +95,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                   </div>
                 ))}
               </div>
-              <div className="sticky right-0 z-50 w-20 shrink-0 bg-white" />
+              <div className="sticky right-0 z-50 w-20 shrink-0 bg-white flex justify-end">
+                <button onClick={onReturnToMap} className="w-10 h-10 flex items-center justify-center text-stone-500 hover:bg-stone-100 rounded-lg" title="关闭/查看地图"><X size={20} /></button>
+              </div>
             </div>
           )}
           {sortedPlayers.map((player, index) => {
@@ -141,7 +126,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                       className={`flex items-center justify-center text-white font-serif font-black italic shadow-sm relative z-10 w-8 h-8 rounded-lg text-sm`}
                       style={{ backgroundColor: player.color }}
                     >
-                      #{index + 1}
+                      #{1 + sortedPlayers.filter(other => other.stats.totalVp > player.stats.totalVp).length}
                     </div>
                     {isWinner && (
                       <div className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black w-5 h-5 rounded-full flex items-center justify-center text-[11px] shadow-sm border border-white z-20">

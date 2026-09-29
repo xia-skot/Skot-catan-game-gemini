@@ -1015,7 +1015,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       </div>}
 
       <div 
-        className="flex-1 min-h-0 overflow-y-auto no-scrollbar relative p-4 space-y-4 max-w-2xl w-full mx-auto touch-pan-y"
+        className={`flex-1 min-h-0 no-scrollbar relative p-4 max-w-2xl w-full mx-auto touch-pan-y ${activeView === 'history' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto space-y-4'}`}
         style={{ overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}
       >
         {activeView === 'edit' && (
@@ -1270,11 +1270,11 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               initial={inline ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
+              className="flex-1 min-h-0 flex flex-col gap-4"
             >
               
               {/* Stats Box (moved to top) */}
-              <div className="flex gap-4 p-4 bg-white rounded-3xl shadow-sm border border-slate-100">
+              <div data-history-summary className="shrink-0 flex gap-4 p-4 bg-white rounded-3xl shadow-sm border border-slate-100">
                   <div className="flex-1 flex flex-col items-center">
                     <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">场次</span>
                     <span className="text-xl font-black text-slate-800 mt-1">{totalGames}</span>
@@ -1290,7 +1290,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               </div>
 
               {/* Match History (moved below) */}
-              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
+              <div data-history-scroll className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white px-1 touch-pan-y">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                    <Clock size={16} /> 历史战绩明细
                 </h3>
@@ -1324,19 +1324,15 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                       const isWin = isGameWin(g, currentUser?.username);
                       return (
                         <div key={i} className="py-4 border-b border-slate-100 last:border-b-0 flex flex-col gap-2 relative group">
-                          {isWin && (
-                            <div className="absolute top-0 right-0 w-12 h-12 bg-yellow-400/10 rounded-bl-full flex items-start justify-end p-2 pointer-events-none">
-                              <Trophy size={14} className="text-yellow-500" />
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                          <div className="flex items-center gap-3 flex-wrap text-[10px] text-slate-400 mb-1">
                             <span className="font-bold text-slate-600">ID: {g.roomId}</span>
-                            <span className="font-mono">{new Date(g.completedAt).toLocaleDateString()}</span>
+                            <span className="font-mono">{new Date(g.completedAt).toLocaleDateString('zh-CN')}</span>
+                            {isWin && <Trophy size={12} className="text-yellow-500" />}
                           </div>
                           
                           {/* Scrolling Table */}
                           <div className="overflow-x-auto pb-2 -mx-2 px-2">
-                            <table className="w-full text-left border-collapse text-xs">
+                            <table className="w-full text-left border-collapse text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-1 [&_td]:px-1">
                               <thead>
                                 <tr className="text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
                                   <th className="py-2 px-2 text-center w-8">排名</th>
@@ -1348,6 +1344,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                   <th className="py-2 px-2 text-center">骑</th>
                                   <th className="py-2 px-2 text-center">卡</th>
                                   <th className="py-2 px-2 text-center">岛</th>
+                                  <th className="py-2 px-2 text-center">积分</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-50">
@@ -1358,7 +1355,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                   return (
                                     <tr key={idx} className={`${isWinner ? 'bg-yellow-50/30' : ''}`}>
                                       <td className="py-2 px-2 text-center font-black text-slate-400">
-                                        {idx + 1}
+                                        {1 + sortedPlayers.filter(other => calcTotalScore(other) > calcTotalScore(p)).length}
                                       </td>
                                       <td className="py-2 px-2 font-bold text-slate-700 whitespace-nowrap">
                                         {p.name} {isWinner && '👑'}
@@ -1370,6 +1367,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                       <td className="py-2 px-2 text-center">{p.breakdown?.largestArmy ? 2 : 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.vpCards || 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.islandBonus || 0}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{sortedPlayers.length - sortedPlayers.filter(other => calcTotalScore(other) > calcTotalScore(p)).length}</td>
                                     </tr>
                                   );
                                 })}
@@ -1439,16 +1437,13 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-                                系统公告
-                              </span>
                               <div className={`w-2 h-2 rounded-full shrink-0 ${msg.read ? 'bg-transparent' : 'bg-red-500'}`} />
-                              <h4 className={`text-xs truncate ${msg.read ? 'text-slate-500 font-medium' : 'text-slate-800 font-bold'}`}>
+                              <h4 className="text-xs font-bold text-slate-800 break-words">
                                 {msg.title}
                               </h4>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] text-slate-400 font-mono">{msg.date}</span>
+                              <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">{msg.date?.split(/[ T]/)[0]}</span>
                               {currentUser?.role === 'admin' && (
                                 <button
                                   onClick={(e) => handleDeleteMessage(e, msg.id)}

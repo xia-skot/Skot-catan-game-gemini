@@ -11,7 +11,8 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import assetManifest from './src/assetManifest.json';
-import { applySettingsPatch, getRoomController } from './shared/roomSetup';
+import { applySettingsPatch, getRoomController, getSetupSlots } from './shared/roomSetup';
+import { normalizeBotDifficulty } from './shared/botDifficulty';
 import { computeLeaderboardUserStats } from './server/leaderboard';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from './server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from './server/leaderboardDemo';
@@ -54,7 +55,7 @@ const adminMiddleware = (req: any, res: any, next: any) => {
 
 async function startServer() {
   const app = express();
-  const PORT = DEMO_MODE ? 5174 : Number(process.env.PORT || 3000);
+  const PORT = DEMO_MODE ? Number(process.env.DEMO_PORT || 5174) : Number(process.env.PORT || 3000);
   
   app.use(express.json());
 
@@ -1596,11 +1597,17 @@ async function startServer() {
 
     socket.on('react_to_trade', (roomId: string, tradeId: string, playerId: number, reaction: 'accept' | 'reject') => {
       const room = rooms.get(roomId);
+      const actor = [...(room?.players || []), ...(room?.spectators || [])].find((p: any) => p.socketId === socket.id && !p.disconnected);
+      const reactingPlayer = room?.gameState?.players?.find((p: any) => p.id === playerId);
+      if (!actor || !reactingPlayer || (reactingPlayer.isBot ? actor.id !== getRoomController(room) : actor.id !== reactingPlayer.sessionId) ||
+          !['accept', 'reject'].includes(reaction)) return;
       if (room && room.gameState && room.gameState.tradeOffers) {
         const offers = room.gameState.tradeOffers;
         const index = offers.findIndex((o: any) => o.id === tradeId);
         if (index !== -1) {
           const offer = offers[index];
+          if (offer.status !== 'pending' || offer.initiatorId !== room.gameState.currentPlayerIndex || playerId === offer.initiatorId ||
+              (offer.targetPlayerId !== null && offer.targetPlayerId !== playerId)) return;
           if (reaction === 'accept') {
             if (!offer.acceptedBy.includes(playerId)) offer.acceptedBy.push(playerId);
             offer.rejectedBy = offer.rejectedBy.filter((id: number) => id !== playerId);
@@ -1618,10 +1625,18 @@ async function startServer() {
       if (room && room.gameState) {
         const prev = room.gameState;
         const offer = (prev.tradeOffers || []).find((o: any) => o.id === tradeId);
-        if (!offer) return;
+        if (!offer || offer.status !== 'pending' || !offer.acceptedBy.includes(partnerId) || offer.initiatorId !== prev.currentPlayerIndex ||
+            prev.phase !== 'main' || !prev.hasRolled || partnerId === offer.initiatorId) return;
         const initiator = prev.players.find((p: any) => p.id === offer.initiatorId);
         const partner = prev.players.find((p: any) => p.id === partnerId);
         if (!initiator || !partner) return;
+        const actor = [...room.players, ...(room.spectators || [])].find((p: any) => p.socketId === socket.id && !p.disconnected);
+        if (!actor || (initiator.isBot ? actor.id !== getRoomController(room) : actor.id !== initiator.sessionId)) return;
+        const resourceKeys = ['lumber', 'brick', 'wool', 'grain', 'ore'];
+        const validPayment = (amounts: any, player: any) => amounts && Object.keys(amounts).every(key => resourceKeys.includes(key)) &&
+          resourceKeys.every(key => Number.isSafeInteger(amounts[key] || 0) && (amounts[key] || 0) >= 0 && player.resources[key] >= (amounts[key] || 0)) &&
+          resourceKeys.some(key => amounts[key] > 0);
+        if (!validPayment(offer.offer, initiator) || !validPayment(offer.request, partner)) return;
 
         // Perform trade
         for (const [res, amount] of Object.entries(offer.request)) {
@@ -1687,6 +1702,11 @@ async function startServer() {
       if (!room || room.gameState || !room.players.some((p: any) => p.id === room.hostId && p.socketId === socket.id) ||
           !beginLeaderboardGame(room, initialGameState)) return;
       room.gameState = initialGameState;
+      const configured = getSetupSlots(room).filter(slot => slot.isBot || slot.player);
+      room.gameState.players = initialGameState.players.map((player: any, index: number) => ({
+        ...player,
+        botDifficulty: configured[index]?.isBot ? normalizeBotDifficulty(room.settings.botDifficulties?.[configured[index].index]) : 'expert',
+      }));
       io.to(roomId).emit('game_init', initialGameState, { entry: 'start' });
     });
 

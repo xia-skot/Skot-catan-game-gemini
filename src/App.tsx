@@ -177,6 +177,8 @@ import { audioService } from './audioService';
 import { preloadAllAssets } from './assetPreloader';
 import { SailingTransition, SailingScene, LoadingDots } from './components/SailingScene';
 import { getSetupSlots, getRoomController } from '../shared/roomSetup';
+import { BOT_LEVELS, BOT_TURN_LIMIT_MS, BOT_TRADE_WAIT_MS, normalizeBotDifficulty } from '../shared/botDifficulty';
+import { acceptBotTrade, botLevel, canPay, chooseBotBankTrade, chooseBotBlockade, chooseBotDevCard, chooseBotDiscard, chooseBotGoal, chooseBotMonopoly, chooseBotResources, chooseSetupVillage, planBotBuilds, proposeBotTrade, publicScore, resources as botResources } from './botStrategy';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
 import { useLobbySwipe } from './useLobbySwipe';
@@ -1865,6 +1867,11 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
   const [isConnected, setIsConnected] = useState(true);
 
   const handleLogoClick = useCallback(() => {
+    if (currentUser?.role !== 'admin') {
+      logoClickCountRef.current = 0;
+      logoStartTimeRef.current = 0;
+      return;
+    }
     const now = Date.now();
     if (now - logoStartTimeRef.current > 3000) {
       logoClickCountRef.current = 1;
@@ -1903,7 +1910,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
         logoStartTimeRef.current = 0;
       }
     }
-  }, [mapPreviewSeed, isJoinedLobby, gameStarted]);
+  }, [mapPreviewSeed, isJoinedLobby, gameStarted, currentUser?.role]);
 
   useEffect(() => {
     if (!gameStarted) {
@@ -2743,9 +2750,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
 
     const hexes = getHexesForVertex(gameState.board, vertexId);
     
-    // Pirate check - only blocks settlements if they are on a pure sea hex (which shouldn't happen for land settlements)
-    // In standard Seafarers, the Pirate moved to a sea hex blocks that hex's production and ships.
-    // It usually doesn't block building settlements on islands.
+    if (hexes.some(h => h.id === gameState.pirateHexId)) return false;
 
     if (mode === 'city') {
       // Must be own settlement and not city
@@ -2758,7 +2763,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
     if (gameState.settlements.some(s => s.vertexId === vertexId)) return false;
 
     // Must not be all sea
-    if (hexes.every(h => h.type === HexType.Sea)) return false;
+    if (hexes.every(h => h.type === HexType.Sea || h.type === HexType.Desert)) return false;
 
     // Distance rule
     const [vx, vy] = vertexId.split(',').map(Number);
@@ -3027,403 +3032,150 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
     // Instead we rely on WebSocket TCP delivery and manual sync on reconnect.
   }, [roomState?.roomId, gameStarted]);
 
-  // --- BOT WATCHDOG LOGIC ---
+  const botTurnStartRef = useRef(Date.now());
+  const previousBotTurnRef = useRef('');
+  const [botWakeTick, setBotWakeTick] = useState(0);
   useEffect(() => {
-    if (!gameState || !roomState) return;
-    const isBotProcessor = botProcessorId === socketService.playerId;
-    if (!isBotProcessor) return;
-
-    const interval = setInterval(() => {
-      const activePlayer = gameState.players[gameState.currentPlayerIndex];
-      // Only forcibly end turn if it's main phase, bot is active, and they exceeded 10s.
-      if (activePlayer?.isBot && gameState.phase === 'main' && botTurnStartRef.current > 0) {
-        if (Date.now() - botTurnStartRef.current > 10000) {
-          nextTurn();
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [gameState, botProcessorId, nextTurn]);
-
-  // --- PARALLEL BOT ACTIONS (e.g. Discarding, Trade Responses) ---
-  const processedDiscardsRef = useRef<Record<number, boolean>>({});
-
-  useEffect(() => {
-    if (!gameState || !roomState || isDiceRolling || gameState.phase !== 'discard') {
-      processedDiscardsRef.current = {};
-      return;
-    }
-    
-    // Use roomState host check to ensure only one client processes bots
-    const isBotProcessor = botProcessorId === socketService.playerId;
-    if (!isBotProcessor) return;
-
-    const botPendingDiscards = gameState.pendingDiscards.filter(pd => gameState.players[pd.playerId]?.isBot);
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    botPendingDiscards.forEach(pd => {
-      if (!processedDiscardsRef.current[pd.playerId]) {
-        processedDiscardsRef.current[pd.playerId] = true;
-        
-        // We use a small timeout to avoid hammering the state and simulate thinking
-        timers.push(setTimeout(() => {
-          if (controllerRef.current !== socketService.playerId || !socketService.isConnected) return;
-          const player = gameState.players[pd.playerId];
-          const resPool = Object.entries(player.resources).flatMap(([res, count]) => Array(count).fill(res as ResourceType));
-          const toDiscard: Record<ResourceType, number> = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 };
-          
-          let amountToDiscard = pd.amount;
-          for (let i = 0; i < amountToDiscard; i++) {
-            if (resPool.length > 0) {
-              const idx = Math.floor(Math.random() * resPool.length);
-              toDiscard[resPool[idx]]++;
-              resPool.splice(idx, 1);
-            }
-          }
-          discardCards(pd.playerId, toDiscard);
-        }, 1500 + (Math.random() * 1000)));
-      }
-    });
-    return () => { timers.forEach(clearTimeout); processedDiscardsRef.current = {}; };
-  }, [gameState?.phase, gameState?.pendingDiscards, botProcessorId, isDiceRolling, discardCards, gameState?.players, roomState]);
-
-  // --- BOT LOGIC ---
-  const isProcessingBotRef = useRef(false);
-  const botTurnStartRef = useRef<number>(Date.now());
-  const lastBotStateKeyRef = useRef<string>('');
-  const discardedThisTurnRef = useRef<boolean>(false);
-  const prevPlayerIndexRef = useRef<number>(-1);
-  const botPrevHasRolledRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    if (!gameState) return;
-    const isNewPlayer = gameState.currentPlayerIndex !== prevPlayerIndexRef.current;
-    const justRolled = gameState.hasRolled && !botPrevHasRolledRef.current;
-    if (isNewPlayer || justRolled) {
+    const key = `${gameState?.currentPlayerIndex}:${gameState?.hasRolled}`;
+    if (key !== previousBotTurnRef.current) {
+      previousBotTurnRef.current = key;
       botTurnStartRef.current = Date.now();
     }
-    prevPlayerIndexRef.current = gameState.currentPlayerIndex;
-    botPrevHasRolledRef.current = gameState.hasRolled;
   }, [gameState?.currentPlayerIndex, gameState?.hasRolled]);
 
   useEffect(() => {
-    if (!gameState || isProcessingBotRef.current || isDiceRolling) return;
-    const activePlayer = gameState.players[activePlayerId];
-    if (!activePlayer?.isBot) {
-        lastBotStateKeyRef.current = '';
-        discardedThisTurnRef.current = false;
-        return;
-    }
-    
-    // Reset discard tracker if phase changes to something not discard
-    if (gameState.phase !== 'discard') {
-      discardedThisTurnRef.current = false;
-    }
-    
-    // Use roomState host check to ensure only one client processes bots
-    const isBotProcessor = botProcessorId === socketService.playerId;
-    if (!isBotProcessor) return;
+    if (botProcessorId !== socketService.playerId || !gameState?.players[gameState.currentPlayerIndex]?.isBot ||
+        gameState.phase !== 'main' || !gameState.hasRolled || isDiceRolling) return;
+    const timer = setInterval(() => {
+      if (controllerRef.current === socketService.playerId && socketService.isConnected &&
+          Date.now() - botTurnStartRef.current >= BOT_TURN_LIMIT_MS) nextTurn();
+    }, 500);
+    return () => clearInterval(timer);
+  }, [gameState, botProcessorId, isDiceRolling, nextTurn]);
 
-    if (isDiceRolling) return; // Wait for dice rolling animation to finish!
-
-    isProcessingBotRef.current = true;
-    const timer = setTimeout(() => {
-      isProcessingBotRef.current = false;
-      if (!gameState || isDiceRolling) return;
-      const activePlayer = gameState.players[activePlayerId];
-      if (!activePlayer?.isBot) return;
-
-      const { phase, hasRolled } = gameState;
-
-      if (isDiceRolling) return; // Still rolling!
-
-    if (phase === 'initial_dice_roll') {
-      rollDice();
-      return;
-    }
-
-    if (phase === 'setup') {
-      const setupSettlementsThisTurn = gameState.settlements.filter(s => s.playerId === activePlayerId).length;
-      const setupRoadsThisTurn = gameState.roads.filter(r => r.playerId === activePlayerId).length;
-      const setupShipsThisTurn = gameState.ships.filter(s => s.playerId === activePlayerId).length;
-      const totalPaths = setupRoadsThisTurn + setupShipsThisTurn;
-
-      if (setupSettlementsThisTurn === totalPaths) {
-        // Build settlement
-        const validVertices = vertices.filter(v => checkIsValidVertex(v.id, 'settlement'));
-        if (validVertices.length > 0) {
-          const scoredVertices = validVertices.map(v => {
-            const adjacentHexes = v.hexIds.map(id => gameState.board.find(h => h.id === id)).filter(Boolean);
-            const probSum = adjacentHexes.reduce((sum, hex) => {
-              const dots = (hex!.type === HexType.Sea || hex!.type === HexType.Desert) ? 0 : 6 - Math.abs(7 - hex!.number);
-              return sum + dots;
-            }, 0);
-            return { vertex: v, score: probSum + Math.random() * 2 };
-          });
-          scoredVertices.sort((a, b) => b.score - a.score);
-          const bestV = scoredVertices[0].vertex;
-          buildSettlement(bestV.id, bestV.hexIds);
-        }
-      } else {
-        // Build road or ship
-        const lastSettlement = gameState.settlements.filter(s => s.playerId === activePlayerId).pop();
-        if (lastSettlement) {
-          const validRoadEdges = edges.filter(e => e.id.includes(lastSettlement.vertexId) && checkIsValidEdge(e.id, 'road'));
-          const validShipEdges = edges.filter(e => e.id.includes(lastSettlement.vertexId) && checkIsValidEdge(e.id, 'ship'));
-          
-          if (validRoadEdges.length > 0) {
-            buildRoad(validRoadEdges[Math.floor(Math.random() * validRoadEdges.length)].id);
-          } else if (validShipEdges.length > 0) {
-            buildShip(validShipEdges[Math.floor(Math.random() * validShipEdges.length)].id);
-          }
-        }
-      }
-    } else if (phase === 'main' || phase === 'road_building') {
-        if (Date.now() - botTurnStartRef.current > 10000) {
-           nextTurn();
-           return;
-        }
-
-        if (!gameState.hasRolled) {
-          // Bot: Should I play a Knight card before rolling?
-          if (!gameState.hasPlayedDevCardThisTurn && activePlayer.devCards.includes(DevCardType.Knight)) {
-            // If the robber is on one of our high-yield hexes, play Knight
-            const myProductiveHexIds = gameState.settlements
-              .filter(s => s.playerId === activePlayerId)
-              .flatMap(s => s.hexIds);
-            if (myProductiveHexIds.includes(gameState.robberHexId)) {
-              playDevCard(DevCardType.Knight);
-              return;
-            }
-          }
-
-          rollDice();
-          return;
-        }
-
-        // Try actions (using local check to avoid gameState.currentPlayerIndex mismatch)
-        const canAffordLocal = (cost: Record<string, number>) => Object.entries(cost).every(([res, amt]) => (activePlayer.resources as any)[res] >= amt);
-
-        const playerRoadsCount = gameState.roads.filter(r => r.playerId === activePlayerId).length;
-        const playerShipsCount = gameState.ships.filter(s => s.playerId === activePlayerId).length;
-        const playerSettlementsCount = gameState.settlements.filter(s => s.playerId === activePlayerId).length;
-        const playerCitiesCount = gameState.settlements.filter(s => s.playerId === activePlayerId && s.isCity).length;
-
-        if (canAffordLocal(COSTS.city) && playerCitiesCount < 4) {
-          const upgradable = gameState.settlements.filter(s => s.playerId === activePlayerId && !s.isCity);
-          if (upgradable.length > 0) {
-            upgradeToCity(upgradable[0].vertexId);
-            return;
-          }
-        }
-
-        if (canAffordLocal(COSTS.settlement) && playerSettlementsCount < 5) {
-          const validV = vertices.filter(v => checkIsValidVertex(v.id, 'settlement'));
-          if (validV.length > 0) {
-            buildSettlement(validV[0].id, validV[0].hexIds);
-            return;
-          }
-        }
-
-        if (canAffordLocal(COSTS.devCard) && gameState.bankDevCards.length > 0) {
-          buyDevCard();
-          return;
-        }
-
-        if (canAffordLocal(COSTS.road) && playerRoadsCount < 15) {
-          const validE = edges.filter(e => checkIsValidEdge(e.id, 'road'));
-          if (validE.length > 0) {
-            buildRoad(validE[0].id);
-            return;
-          }
-        }
-
-        if (canAffordLocal(COSTS.ship) && playerShipsCount < 15) {
-          const validS = edges.filter(e => checkIsValidEdge(e.id, 'ship'));
-          if (validS.length > 0) {
-            buildShip(validS[0].id);
-            return;
-          }
-        }
-
-        if (phase === 'road_building' && gameState.freeRoads && gameState.freeRoads > 0) {
-           // We are in road building mode, should have already built one if we were in main before.
-           // This block handles the second road if we didn't exit.
-           if (gameState.mapType === 'archipelago') {
-             const validS = edges.filter(e => checkIsValidEdge(e.id, 'ship'));
-             if (validS.length > 0) {
-               buildShip(validS[0].id);
-               return;
-             }
-           }
-           const validE = edges.filter(e => checkIsValidEdge(e.id, 'road'));
-           if (validE.length > 0) {
-             buildRoad(validE[0].id);
-             return;
-           }
-        }
-
-        // Try bank trade if we have a lot of one resource
-        const surplusEntries = Object.entries(activePlayer.resources).filter(([_, count]) => (count as number) >= 4);
-        if (surplusEntries.length > 0) {
-          const giveRes = surplusEntries[0][0] as ResourceType;
-          const needed = [ResourceType.Ore, ResourceType.Grain, ResourceType.Brick, ResourceType.Lumber, ResourceType.Wool]
-            .find(r => activePlayer.resources[r] === 0);
-          if (needed && gameState.bankResources[needed] > 0) {
-            tradeWithBank(giveRes, needed);
-            return;
-          }
-        }
-
-        nextTurn();
-      } else if (phase === 'robber' || phase === 'robber_move') {
-        // Find a hex where opponent has buildings and move robber there
-        const validH = gameState.board.filter(h => h.type !== HexType.Sea && h.id !== gameState.robberHexId);
-        // Pirate can move to sea
-        const validSeaH = gameState.board.filter(h => h.type === HexType.Sea && h.id !== gameState.pirateHexId);
-
-        if (phase === 'robber_move' || phase === 'robber') {
-           // Decide between robber and pirate move if applicable
-           const activePlayer = gameState.players[activePlayerId];
-           const preferPirate = gameState.mapType !== 'standard' && validSeaH.length > 0 && (Math.random() < 0.5 || validH.length === 0);
-           
-           if (preferPirate) {
-              const scoredSea = validSeaH.map(h => {
-                 let score = 0;
-                 const px = Math.sqrt(3) * 40 * (h.q + h.r / 2);
-                 const py = 80 * 0.75 * h.r;
-                 const hexEdges = [];
-                 for (let i = 0; i < 6; i++) {
-                   const a1 = (Math.PI / 180) * (60 * i + 30);
-                   const a2 = (Math.PI / 180) * (60 * ((i + 1) % 6) + 30);
-                   const x1 = px + 40 * Math.cos(a1);
-                   const y1 = py + 40 * Math.sin(a1);
-                   const x2 = px + 40 * Math.cos(a2);
-                   const y2 = py + 40 * Math.sin(a2);
-                   hexEdges.push([`${Math.round(x1)},${Math.round(y1)}`, `${Math.round(x2)},${Math.round(y2)}`].sort().join('|'));
-                 }
-                 const adjShips = gameState.ships.filter(s => hexEdges.includes(s.edgeId) && s.playerId !== activePlayerId);
-                 score += adjShips.length * 5;
-                 return { id: h.id, score: score + Math.random() };
-              });
-              scoredSea.sort((a,b) => b.score - a.score);
-              movePirate(scoredSea[0].id);
-              return;
-           } else if (validH.length > 0) {
-              const scoredH = validH.map(h => {
-                 let score = 0;
-                 const adjS = gameState.settlements.filter(s => s.hexIds.includes(h.id));
-                 adjS.forEach(s => {
-                   if (s.playerId === activePlayerId) score -= 10;
-                   else score += (s.isCity ? 5 : 2);
-                 });
-                 if (h.type === HexType.Desert) score -= 5;
-                 return { id: h.id, score: score + Math.random() };
-              });
-              scoredH.sort((a,b) => b.score - a.score);
-              moveRobber(scoredH[0].id);
-              return;
-           } else if (validSeaH.length > 0) {
-              movePirate(validSeaH[0].id);
-              return;
-           }
-        }
-      } else if (phase === 'stealing') {
-        if (gameState.pendingStealFrom.length > 0) {
-          if (gameState.selectedStealTarget == null) {
-            // Steal from player with most points
-            const targets = gameState.pendingStealFrom.map(pid => ({ id: pid, points: gameState.players[pid].victoryPoints + (gameState.settlements.filter(s=>s.playerId===pid).length) }));
-            targets.sort((a,b) => b.points - a.points);
-            selectStealTarget(targets[0].id);
-          } else {
-            // Recover from stuck state or execute selected
-            stealResource(gameState.selectedStealTarget);
-          }
-        }
-      } else if (phase === 'gold_selection') {
-        const rewardAmount = gameState.pendingGoldRewards[0]?.amount || 1;
-        selectGoldResource({ lumber: 0, brick: 0, wool: 0, grain: 0, ore: rewardAmount });
-      } else if (phase === 'discard' || phase === 'year_of_plenty' || phase === 'monopoly' || phase === 'finished' || phase === 'order_determination' || phase === 'rolling_7') {
-        // Do nothing, handled by other logic, parallel loops, or manual play
-        return;
-      } else {
-        // Fallback for other subphases
-        nextTurn();
-      }
-    }, 1200);
-
-    return () => {
-      clearTimeout(timer);
-      isProcessingBotRef.current = false;
-    };
-  }, [gameState, activePlayerId, vertices, edges, checkIsValidVertex, checkIsValidEdge, buildSettlement, buildRoad, buildShip, upgradeToCity, rollDice, nextTurn, discardCards, moveRobber, movePirate, stealResource, selectStealTarget, selectGoldResource, resolveYearOfPlenty, resolveMonopoly, playDevCard, tradeWithBank, buyDevCard, canAfford, botProcessorId, isDiceRolling]);
-
-  // --- INITIAL DICE ROLL DELAY LOGIC ---
   useEffect(() => {
-    if (gameState?.phase === 'initial_dice_roll' && gameState.hasRolled) {
-      if (botProcessorId === socketService.playerId) {
-        const timer = setTimeout(() => {
-          resolveInitialRoll();
-        }, 3600); // 2500ms roll animation + 1100ms viewing time
-        return () => clearTimeout(timer);
+    if (!gameState || gameState.phase !== 'discard' || isDiceRolling || botProcessorId !== socketService.playerId) return;
+    const timers = gameState.pendingDiscards.filter(item => gameState.players[item.playerId]?.isBot).map(item =>
+      setTimeout(() => {
+        if (controllerRef.current === socketService.playerId && socketService.isConnected)
+          discardCards(item.playerId, chooseBotDiscard(gameState.players[item.playerId], item.amount));
+      }, 600));
+    return () => timers.forEach(clearTimeout);
+  }, [gameState, botProcessorId, isDiceRolling, discardCards]);
+
+  useEffect(() => {
+    if (!gameState || !roomState || isDiceRolling || botProcessorId !== socketService.playerId) return;
+    const player = gameState.players[activePlayerId];
+    if (!player?.isBot) return;
+    const timer = setTimeout(() => {
+      if (controllerRef.current !== socketService.playerId || !socketService.isConnected) return;
+      const state = gameState;
+      const wake = () => setBotWakeTick(value => value + 1);
+      if (state.phase === 'initial_dice_roll') { if (!state.hasRolled) rollDice(); return; }
+      if (['discard', 'finished', 'order_determination', 'rolling_7'].includes(state.phase)) return;
+      if (state.phase === 'gold_selection') {
+        const amount = state.pendingGoldRewards[0]?.amount || 0;
+        const chosen = chooseBotResources(state, player, amount);
+        selectGoldResource(chosen);
+        return;
       }
-    }
+      if (state.phase === 'monopoly') { resolveMonopoly(chooseBotMonopoly(state, player)); return; }
+      if (state.phase === 'robber' || state.phase === 'robber_move') {
+        const target = chooseBotBlockade(state, player);
+        if (target) (target.pirate ? movePirate : moveRobber)(target.id);
+        return;
+      }
+      if (state.phase === 'stealing') {
+        if (state.selectedStealTarget != null) stealResource(state.selectedStealTarget);
+        else {
+          const target = state.pendingStealFrom.map(id => state.players[id]).filter(Boolean)
+            .sort((a, b) => publicScore(state, b) - publicScore(state, a))[0];
+          if (target) selectStealTarget(target.id);
+        }
+        return;
+      }
+      const villageMoves = vertices.filter(v => checkIsValidVertex(v.id, 'settlement'));
+      if (state.phase === 'setup' && state.settlements.filter(v => v.playerId === player.id).length ===
+          [...state.roads, ...state.ships].filter(path => path.playerId === player.id).length) {
+        const village = chooseSetupVillage(state, player, villageMoves);
+        if (village) buildSettlement(village.id, village.hexIds);
+        return;
+      }
+      const plans = planBotBuilds(state, player, {
+        villages: villageMoves,
+        cities: vertices.filter(v => checkIsValidVertex(v.id, 'city')),
+        roads: edges.filter(e => checkIsValidEdge(e.id, 'road')).map(e => e.id),
+        ships: edges.filter(e => checkIsValidEdge(e.id, 'ship')).map(e => e.id),
+        edges: edges.map(e => e.id),
+      });
+      const goal = chooseBotGoal(player, plans);
+      const execute = (plan: typeof plans[number]) => {
+        if (plan.type === 'city') upgradeToCity(plan.id);
+        else if (plan.type === 'settlement') buildSettlement(plan.id, plan.hexIds);
+        else if (plan.type === 'road') buildRoad(plan.id);
+        else if (plan.type === 'ship') buildShip(plan.id);
+        else buyDevCard();
+      };
+      if (state.phase === 'year_of_plenty') {
+        const selected = chooseBotResources(state, player, 2, goal?.cost);
+        const cards = botResources.flatMap(r => Array(selected[r]).fill(r));
+        resolveYearOfPlenty(cards[0] || ResourceType.Ore, cards[1] || cards[0] || ResourceType.Ore);
+        return;
+      }
+      if (state.phase === 'setup' || state.phase === 'road_building') {
+        const path = plans.find(plan => plan.type === 'road' || plan.type === 'ship');
+        if (path) execute(path);
+        else if (state.phase === 'road_building') syncGameState({ ...state, phase: 'main', freeRoads: 0, playingDevCard: null });
+        return;
+      }
+      if (state.phase !== 'main') return;
+      if (state.hasRolled && Date.now() - botTurnStartRef.current >= BOT_TURN_LIMIT_MS) { nextTurn(); return; }
+      const pending = state.tradeOffers?.find(offer => offer.initiatorId === player.id && offer.status === 'pending');
+      if (pending) {
+        const partner = pending.acceptedBy.map(id => state.players[id]).find(other => other && canPay(other, pending.request));
+        if (!canPay(player, pending.offer) || Date.now() - (pending.createdAt || 0) >= BOT_TRADE_WAIT_MS) cancelTrade(pending.id);
+        else if (partner) { socketService.sendFinalizeTrade(roomState.roomId, pending.id, partner.id); wake(); }
+        else wake();
+        return;
+      }
+      const card = chooseBotDevCard(state, player, plans);
+      if (card) { playDevCard(card); return; }
+      if (!state.hasRolled) { rollDice(); return; }
+      const affordable = plans.find(plan => canPay(player, plan.cost) && (plan.type !== 'road' && plan.type !== 'ship' || plan.score > 1));
+      if (affordable) { execute(affordable); return; }
+      const proposal = proposeBotTrade(player, goal, state.botTradesThisTurn || 0, state.botTradeSignatures || []);
+      if (proposal) { proposeTrade(proposal.offer, proposal.request, null); return; }
+      const bank = chooseBotBankTrade(state, player, goal);
+      if (bank) { tradeWithBank(bank.give, bank.receive); return; }
+      nextTurn();
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [gameState, roomState?.roomId, botWakeTick, activePlayerId, botProcessorId, isDiceRolling, vertices, edges,
+    checkIsValidVertex, checkIsValidEdge, buildSettlement, buildRoad, buildShip, upgradeToCity, rollDice, nextTurn,
+    moveRobber, movePirate, stealResource, selectStealTarget, selectGoldResource, resolveYearOfPlenty, resolveMonopoly,
+    playDevCard, tradeWithBank, buyDevCard, proposeTrade, cancelTrade, syncGameState]);
+
+  useEffect(() => {
+    if (gameState?.phase !== 'initial_dice_roll' || !gameState.hasRolled || botProcessorId !== socketService.playerId) return;
+    const timer = setTimeout(resolveInitialRoll, 3600);
+    return () => clearTimeout(timer);
   }, [gameState?.phase, gameState?.hasRolled, botProcessorId, resolveInitialRoll]);
 
-  // --- BOT TRADE EVALUATION LOGIC ---
-  const botTradeEvaluatedRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
-    if (!gameState || !roomState) return;
-    const isBotProcessor = botProcessorId === socketService.playerId;
-    if (!isBotProcessor) return;
-
-    if (gameState.tradeOffers) {
-      gameState.tradeOffers.forEach(offer => {
-        if (offer.status !== 'pending') return;
-
-        gameState.players.forEach(p => {
-          if (!p.isBot) return;
-          if (p.id === offer.initiatorId) return;
-
-          // If trade targeted to specific player, check bot ID
-          if (offer.targetPlayerId !== null && offer.targetPlayerId !== p.id) return;
-
-          // Check if bot has already reacted
-          if (offer.acceptedBy.includes(p.id) || offer.rejectedBy.includes(p.id)) return;
-
-          // Check if we already evaluated this combination in current session
-          const evaluationKey = `${offer.id}-${p.id}`;
-          if (botTradeEvaluatedRef.current.has(evaluationKey)) return;
-          
-          botTradeEvaluatedRef.current.add(evaluationKey);
-
-          // Give a short delay to make it feel human-like
-          setTimeout(() => {
-            // Re-evaluate in case state changed
-            const canAfford = Object.values(ResourceType).every(
-              res => (p.resources[res] || 0) >= (offer.request[res] || 0)
-            );
-
-            if (!canAfford) {
-              if (roomState?.roomId) socketService.sendReactToTrade(roomState.roomId, offer.id, p.id, 'reject');
-            } else {
-              const totalRequested = Object.values(offer.request).reduce((a, b) => a + (b || 0), 0);
-              const totalOffered = Object.values(offer.offer).reduce((a, b) => a + (b || 0), 0);
-
-              const acceptProbability = totalOffered >= totalRequested ? 0.7 : 0.2;
-              
-              if (Math.random() <= acceptProbability) {
-                if (roomState?.roomId) socketService.sendReactToTrade(roomState.roomId, offer.id, p.id, 'accept');
-              } else {
-                if (roomState?.roomId) socketService.sendReactToTrade(roomState.roomId, offer.id, p.id, 'reject');
-              }
-            }
-          }, 800 + Math.random() * 1000);
-        });
-      });
-    }
-  }, [gameState?.tradeOffers, botProcessorId, roomState?.roomId]);
+    if (!gameState || !roomState || botProcessorId !== socketService.playerId) return;
+    const timer = setTimeout(() => {
+      if (controllerRef.current !== socketService.playerId || !socketService.isConnected) return;
+      for (const offer of gameState.tradeOffers || []) {
+        if (offer.status !== 'pending') continue;
+        for (const player of gameState.players) {
+          if (!player.isBot || player.id === offer.initiatorId || (offer.targetPlayerId !== null && offer.targetPlayerId !== player.id) ||
+              offer.acceptedBy.includes(player.id) || offer.rejectedBy.includes(player.id)) continue;
+          socketService.sendReactToTrade(roomState.roomId, offer.id, player.id, acceptBotTrade(gameState, player, offer) ? 'accept' : 'reject');
+        }
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [gameState?.tradeOffers, gameState?.players, botProcessorId, roomState?.roomId]);
 
   const handleStartGame = async () => {
     setIsStartingGame(true);
@@ -3466,7 +3218,8 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       configuredSlots.map(slot => slot.isBot),
       assignedSessions,
       assignedNames,
-      configuredSlots.map(slot => slot.index + 1)
+      configuredSlots.map(slot => slot.index + 1),
+      configuredSlots.map(slot => normalizeBotDifficulty(roomState.settings.botDifficulties?.[slot.index]))
     );
     
     if (initialState) {
@@ -4261,10 +4014,14 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                       </div>
                       <div className="flex flex-col">
                         <span className={`text-[10px] sm:text-[11px] font-black leading-tight ${isBot ? 'text-slate-800' : 'text-slate-400'}`}>{isBot ? `领主 AI ${globalIndex + 1}` : '未占领席位'}</span>
-                        {isBot && <span className="text-[6px] font-bold text-indigo-400 uppercase tracking-widest leading-none mt-0.5">高级AI</span>}
+                        {isBot && <span className="text-[8px] font-bold text-indigo-400 leading-none mt-1">{BOT_LEVELS[normalizeBotDifficulty(roomState.settings.botDifficulties?.[globalIndex])].label} AI</span>}
                       </div>
                     </div>
                     {isHostInLobby && (
+                      <div className="flex items-center gap-2 shrink-0">
+                      <select aria-label={`AI ${globalIndex + 1} 难度`} className="text-[10px] border border-slate-200 rounded px-1 py-1 bg-white text-slate-600" value={normalizeBotDifficulty(roomState.settings.botDifficulties?.[globalIndex])} onChange={e => socketService.updateSettings(roomState.roomId, { botLevel: { index: globalIndex, difficulty: normalizeBotDifficulty(e.target.value) } })}>
+                        {Object.entries(BOT_LEVELS).map(([value, level]) => <option key={value} value={value}>{level.label}</option>)}
+                      </select>
                       <button 
                         onClick={() => socketService.toggleBot(roomState.roomId, globalIndex)}
                         disabled={!isBot && roomState.players.length + botConfig.filter(Boolean).length >= playerCount}
@@ -4273,6 +4030,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                       >
                         {isBot ? '取消配置' : '配置AI玩家'}
                       </button>
+                      </div>
                     )}
                   </div>
                 );

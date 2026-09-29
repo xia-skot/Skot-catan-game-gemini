@@ -45,6 +45,7 @@ export interface Player {
   name: string;
   color: string;
   isBot: boolean;
+  botDifficulty?: import('../shared/botDifficulty').BotDifficulty;
   resources: Record<ResourceType, number>;
   victoryPoints: number;
   roads: number;
@@ -71,6 +72,7 @@ export interface Port {
 }
 
 export interface TradeOffer {
+  createdAt?: number;
   id: string;
   initiatorId: number;
   targetPlayerId: number | null; // null for all players
@@ -83,6 +85,8 @@ export interface TradeOffer {
 }
 
 export interface GameState {
+  botTradesThisTurn?: number;
+  botTradeSignatures?: string[];
   board: Hex[];
   ports: Port[];
   players: Player[];

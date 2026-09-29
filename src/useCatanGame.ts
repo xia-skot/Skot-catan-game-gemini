@@ -1106,7 +1106,7 @@ export function useCatanGame() {
 
 
 
-  const initGame = useCallback((playerCount: number, mapType: MapType = 'standard', customBoard?: Hex[], botConfig?: boolean[], connectedPlayers?: string[], playerNames?: string[], seatNumbers?: number[]) => {
+  const initGame = useCallback((playerCount: number, mapType: MapType = 'standard', customBoard?: Hex[], botConfig?: boolean[], connectedPlayers?: string[], playerNames?: string[], seatNumbers?: number[], botDifficulties?: import('../shared/botDifficulty').BotDifficulty[]) => {
     let cpIndex = 0;
     const players: Player[] = Array.from({ length: playerCount }, (_, i) => {
       const isConfiguredBot = botConfig ? botConfig[i] : false;
@@ -1128,6 +1128,7 @@ export function useCatanGame() {
         name: pName,
         color: PLAYER_COLORS[i],
         isBot: isConfiguredBot,
+        botDifficulty: isConfiguredBot ? (botDifficulties?.[i] || 'standard') : 'expert',
         sessionId: pSessionId,
         resources: {
           [ResourceType.Lumber]: 0,
@@ -1550,6 +1551,8 @@ export function useCatanGame() {
         ...prev,
         players: updatedPlayers,
         tradeOffers: pendingTradesClosed,
+        botTradesThisTurn: 0,
+        botTradeSignatures: [],
         currentPlayerIndex: (prev.currentPlayerIndex + 1) % prev.players.length,
         phase: 'main',
         hasRolled: false,
@@ -1851,11 +1854,15 @@ export function useCatanGame() {
   const buildSettlement = useCallback((vertexId: string, hexIds: string[]) => {
     setGameState(prev => {
       if (!prev) return null; if (prev.phase === 'finished') return prev;
+      if (prev.phase !== 'setup' && (prev.phase !== 'main' || !prev.hasRolled)) return prev;
+      const actualHexes = getHexesForVertex(prev.board, vertexId);
+      if (!actualHexes.length || actualHexes.some(h => h.id === prev.pirateHexId)) return prev;
+      hexIds = actualHexes.map(h => h.id);
       const player = prev.players[prev.currentPlayerIndex];
       
       const isSetup = prev.phase === 'setup';
       const setupSettlementsThisTurn = prev.settlements.filter(s => s.playerId === prev.currentPlayerIndex).length;
-      const setupRoadsThisTurn = prev.roads.filter(r => r.playerId === prev.currentPlayerIndex).length;
+      const setupRoadsThisTurn = [...prev.roads, ...prev.ships].filter(r => r.playerId === prev.currentPlayerIndex).length;
 
       // Cannot build on pure Sea vertices
       const isAllSea = hexIds.every(id => {
@@ -1888,8 +1895,8 @@ export function useCatanGame() {
 
         // Check connectivity for main phase
         const hasRoadConnection = 
-          prev.roads.some(r => r.playerId === player.id && r.edgeId.includes(vertexId)) ||
-          prev.ships.some(s => s.playerId === player.id && s.edgeId.includes(vertexId));
+          prev.roads.some(r => r.playerId === player.id && r.edgeId.split('|').includes(vertexId)) ||
+          prev.ships.some(s => s.playerId === player.id && s.edgeId.split('|').includes(vertexId));
         if (!hasRoadConnection) return prev;
       }
 
@@ -2654,6 +2661,7 @@ export function useCatanGame() {
     setGameState(prev => {
       if (!prev || prev.phase === 'finished') return prev;
       const newOffer: TradeOffer = {
+        createdAt: Date.now(),
         id: Math.random().toString(36).substring(2, 9),
         initiatorId: prev.currentPlayerIndex,
         targetPlayerId,
@@ -2663,7 +2671,11 @@ export function useCatanGame() {
         acceptedBy: [],
         rejectedBy: [],
       };
-      return { ...prev, tradeOffers: [...(prev.tradeOffers || []), newOffer] };
+      const isBot = prev.players[prev.currentPlayerIndex].isBot;
+      const signature = `${Object.keys(offer).find(r => offer[r as ResourceType] > 0)}:${Object.keys(request).find(r => request[r as ResourceType] > 0)}`;
+      return { ...prev, tradeOffers: [...(prev.tradeOffers || []), newOffer],
+        botTradesThisTurn: (prev.botTradesThisTurn || 0) + (isBot ? 1 : 0),
+        botTradeSignatures: isBot ? [...(prev.botTradeSignatures || []), signature] : prev.botTradeSignatures };
     });
   }, []);
 

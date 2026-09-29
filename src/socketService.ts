@@ -11,6 +11,7 @@ export interface RoomState {
     playerCount: number;
     mapType: string;
     botConfig: boolean[];
+    botDifficulties?: import('../shared/botDifficulty').BotDifficulty[];
     customBoard?: any[];
     customMapName?: string;
     customMapId?: string;

@@ -62,7 +62,7 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
           <button type="button" aria-label="下个月" title="下个月" disabled={month >= currentMonth}
             onClick={() => setMonth(value => shiftMonth(value, 1))} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-slate-100 disabled:opacity-30"><ChevronRight size={18} /></button>
         </div>
-        <span className="text-xs text-slate-500">北京时间{data ? ` · 前 ${data.topCount} 名` : ''}</span>
+        <span className="text-xs text-slate-500">{data ? `前 ${data.topCount} 名` : ''}</span>
       </div>
       <div aria-live="polite" aria-busy={loading} className="min-h-40">
         {loading ? <div role="status" className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />加载中</div> :

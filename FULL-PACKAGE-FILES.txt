@@ -4,6 +4,7 @@
 app/applet/src/components/UserProfileModal.tsx
 app/applet/test-console.js
 BANDWIDTH-NOTES.md
+BANDWIDTH-V13.json
 demo.html
 demo/preview.css
 demo/preview.tsx
@@ -73,6 +74,7 @@ server/leaderboardDemo.ts
 server/leaderboardRecording.ts
 server/leaderboardRoutes.ts
 server/messageRoutes.ts
+shared/botDifficulty.ts
 shared/leaderboard.ts
 shared/roomSetup.ts
 src/App.tsx
@@ -80,6 +82,7 @@ src/assetCache.ts
 src/assetManifest.json
 src/assetPreloader.ts
 src/audioService.ts
+src/botStrategy.ts
 src/components/AdminDashboard.tsx
 src/components/AssetGate.tsx
 src/components/ErrorBoundary.tsx
@@ -118,6 +121,7 @@ src/types.ts
 src/useCatanGame.ts
 src/useLobbySwipe.ts
 src/vite-env.d.ts
+tests/bot-strategy.test.ts
 tests/chat-v6.spec.ts
 tests/edge-cases.spec.ts
 tests/leaderboard-ui.spec.ts
@@ -129,6 +133,7 @@ tests/mobile-v5.spec.ts
 tests/mobile-v6.spec.ts
 tests/mobile.spec.ts
 tests/production.spec.ts
+tests/refinements-v13.spec.ts
 tests/rising-sea.spec.ts
 tests/room-authority-v6.spec.ts
 tests/slow-assets.spec.ts

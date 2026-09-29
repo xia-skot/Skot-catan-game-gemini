@@ -335,7 +335,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20 justify-center">
-                        <SmartImage src={ORE_ICON} alt="铁矿石" className="w-4 h-4 object-contain" /> 铁矿石
+                        <SmartImage src={ORE_ICON} alt="矿石" className="w-4 h-4 object-contain" /> 矿石
                       </div>
                     </div>
                   </div>
@@ -477,7 +477,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <ArrowRight size={14} className="text-slate-300" />
                       <div className="flex items-center justify-center text-xs text-slate-600 font-bold bg-white border border-slate-100 shadow-sm px-2.5 py-1 rounded-xl w-20">
-                        2:1 铁矿石
+                        2:1 矿石
                       </div>
                     </div>
                   </div>
@@ -500,28 +500,29 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                 <h3 className="text-xs font-black text-sky-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Users size={16} /> 回合流程
                 </h3>
+                <p className="text-xs text-slate-600 leading-relaxed mb-4"><strong>开局：</strong>先掷骰决定顺序，再按正序、逆序各放置1座村庄和1条相连道路。村庄须位于出生陆地，不能邻接金矿；第二座村庄获得相邻板块各1张资源。</p>
                 <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[15px] before:w-0.5 before:bg-slate-100">
                   <div className="relative pl-10">
                     <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-black text-sm shadow-sm ring-4 ring-white border border-sky-200">1</div>
                     <h4 className="font-bold text-slate-800 mb-1">掷骰子</h4>
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">每个回合开始时必须掷骰子。地图上对应该数字的板块将为相邻的定居点(1个)/城市(2个)产出资源。</p>
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">每回合掷骰一次。数字匹配的板块为相邻村庄产出1张资源、城市产出2张；强盗所在板块不产出。</p>
                     
                     <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl p-3 relative">
                       <div className="flex items-center gap-1.5 mb-1">
                         <span className="text-amber-600 font-black text-xs">掷出7（强盗事件）</span>
                       </div>
-                      <p className="text-[10px] text-amber-700 leading-relaxed font-medium">不产出资源。手牌超过7张的玩家必须丢弃一半卡牌。掷骰者需移动强盗至某一板块，并抢夺相邻的一名玩家的一张资源卡。</p>
+                      <p className="text-[10px] text-amber-700 leading-relaxed font-medium">不产出资源。资源卡超过7张时弃掉一半（向下取整，发展卡不计入）。掷骰者移动强盗；群岛模式也可选择海盗，均不能停留原位。有可抢夺目标时，从其中一人手中随机拿1张资源。</p>
                     </div>
                   </div>
                   <div className="relative pl-10">
                     <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-black text-sm shadow-sm ring-4 ring-white border border-sky-200">2</div>
                     <h4 className="font-bold text-slate-800 mb-1">交易</h4>
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">你可以与其他玩家自由交易，或与银行(4:1)及港口(3:1或2:1)进行固定比例的兑换。</p>
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">掷骰后，可交替交易和建设。与银行默认4张同种资源换1张；自己的村庄或城市占据港口后，可使用3:1通用港或2:1专用港。兑换受银行库存限制。</p>
                   </div>
                   <div className="relative pl-10">
                     <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-black text-sm shadow-sm ring-4 ring-white border border-sky-200">3</div>
                     <h4 className="font-bold text-slate-800 mb-1">建设</h4>
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">使用资源建设道路、船只、定居点、升级城市，或购买发展卡。购买的发展卡需等待下个回合才能打出（胜利点卡除外）。</p>
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">支付资源建设道路、船只、村庄，升级城市或购买发展卡。资源与棋子足够时可多次建设。新买的发展卡下回合才能使用，胜利点卡自动计分。</p>
                   </div>
                 </div>
               </div>
@@ -542,13 +543,15 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                 <h3 className="text-xs font-black text-amber-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Trophy size={16} /> 目标分数获胜制
                 </h3>
-                <p className="text-xs text-slate-500 font-medium mb-4">最先在自己回合达到目标分数的玩家直接赢得游戏（<strong>标准大陆模式为 10 分，群岛世界模式为 14 分</strong>）。具体得分方式如下：</p>
+                <p className="text-xs text-slate-500 leading-relaxed mb-3">最长道路、最多骑士出现平局时，原持有者保留称号；只有超过其数量才能夺取。道路可被对手建筑截断，道路与船只合计时仍须通过自己的建筑衔接。</p>
+                <p className="text-xs text-slate-500 leading-relaxed mb-3">月榜积分与游戏胜利分不同：N人局第1名得N分，依次递减；并列按较高名次计分。每月重新累计，AI不上榜，显示名额由管理员设置。</p>
+                <p className="text-xs text-slate-500 font-medium mb-4">本作达到目标分数即结算：<strong>标准大陆10分，群岛世界14分</strong>。城市共计2分，并非在村庄上额外加2分。</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-2xl">
                     <div className="flex items-center gap-3">
                       <Home size={18} className="text-slate-400" />
                       <div>
-                        <div className="font-bold text-slate-700 text-sm">定居点 (村庄)</div>
+                        <div className="font-bold text-slate-700 text-sm">村庄</div>
                       </div>
                     </div>
                     <div className="text-amber-500 font-black shrink-0">+1 分</div>
@@ -567,7 +570,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <Map size={18} className="text-slate-400" />
                       <div>
                         <div className="font-bold text-slate-700 text-sm">最长道路</div>
-                        <div className="text-[9px] text-slate-400">最少5条相连</div>
+                        <div className="text-[9px] text-slate-400">至少5段连续道路或船只；不重复计同一段</div>
                       </div>
                     </div>
                     <div className="text-amber-500 font-black shrink-0">+2 分</div>
@@ -576,7 +579,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <span className="text-lg leading-none grayscale opacity-60">⚔️</span>
                       <div>
-                        <div className="font-bold text-slate-700 text-sm">最大军队</div>
+                        <div className="font-bold text-slate-700 text-sm">最多骑士</div>
                         <div className="text-[9px] text-slate-400">最少3张骑士卡</div>
                       </div>
                     </div>
@@ -596,8 +599,8 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-3">
                       <Anchor size={18} className="text-slate-400" />
                       <div>
-                        <div className="font-bold text-slate-700 text-sm">岛屿初始建房</div>
-                        <div className="text-[9px] text-slate-400">非出生岛首个定居点额外加分</div>
+                        <div className="font-bold text-slate-700 text-sm">首次登岛</div>
+                        <div className="text-[9px] text-slate-400">每名玩家首次在新的非出生岛建村，额外加2分</div>
                       </div>
                     </div>
                     <div className="text-amber-500 font-black shrink-0">+2 分</div>
@@ -621,6 +624,13 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                 <h3 className="text-xs font-black text-rose-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Hammer size={16} /> 建设成本
                 </h3>
+                <ul className="text-xs text-slate-600 leading-relaxed space-y-2 mb-4 list-disc pl-4">
+                  <li>村庄建在陆地顶点；与任何村庄或城市至少隔一个空顶点。除开局外，必须连接自己的道路或船只。</li>
+                  <li>道路沿陆地边缘，船只沿海面边缘；不能穿过他人的村庄或城市继续连接。</li>
+                  <li>道路与船只只能通过自己的村庄或城市衔接，登岛也不例外。</li>
+                  <li>城市只能由自己的村庄升级，升级后收回村庄棋子。每人最多5座村庄、4座城市、15条道路和15艘船。</li>
+                  <li><strong>本作海盗封锁规则：</strong>海盗所在海格的相邻顶点不能新建村庄或升级城市，相邻海边不能新建船只；移走海盗后解除。强盗不限制建造。</li>
+                </ul>
                 <div className="space-y-2">
                   <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -660,7 +670,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <div className="w-8 h-8 rounded-xl bg-white shadow-sm flex items-center justify-center text-slate-500">
                         <Home size={16} />
                       </div>
-                      <span className="font-bold text-slate-700 text-sm">定居点</span>
+                      <span className="font-bold text-slate-700 text-sm">村庄</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <SmartImage src={BRICK_ICON} alt="砖块" className="w-5 h-5 object-contain" />
@@ -681,9 +691,9 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
                       <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
                       <span className="text-slate-300 mx-0.5">+</span>
-                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
-                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
-                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="矿石" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
 
@@ -697,7 +707,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                     <div className="flex items-center gap-1">
                       <SmartImage src={WOOL_ICON} alt="羊毛" className="w-5 h-5 object-contain" />
                       <SmartImage src={GRAIN_ICON} alt="小麦" className="w-5 h-5 object-contain" />
-                      <SmartImage src={ORE_ICON} alt="铁矿石" className="w-5 h-5 object-contain" />
+                      <SmartImage src={ORE_ICON} alt="矿石" className="w-5 h-5 object-contain" />
                     </div>
                   </div>
                 </div>
@@ -719,6 +729,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                 <h3 className="text-xs font-black text-violet-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <BookOpen size={16} /> 卡牌说明
                 </h3>
+                <p className="text-xs text-slate-600 leading-relaxed mb-4">每回合最多使用1张行动发展卡；本回合买到的卡下回合可用。骑士可在掷骰前使用。先完成卡牌效果，再进行其他操作。</p>
                 <div className="space-y-3">
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
                     <div className="flex items-center justify-between mb-2">
@@ -727,7 +738,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 14 张</span>
                     </div>
-                    <p className="text-slate-600 text-xs font-medium leading-relaxed">打出后可以移动强盗或海盗，并从受影响板块的玩家手中随机抽取一张资源卡。最先打出3张骑士卡的玩家获得“最大军队”称号（2分）。</p>
+                    <p className="text-slate-600 text-xs font-medium leading-relaxed">移动强盗或海盗并抢夺1张资源，不触发弃牌。强盗可抢相邻建筑的主人；海盗可抢相邻船只的主人。至少打出3张骑士，且数量最多，获得“最多骑士”2分。</p>
                   </div>
                   
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
@@ -737,7 +748,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 5 张</span>
                     </div>
-                    <p className="text-slate-600 text-xs font-medium leading-relaxed">每张卡片价值1个胜利点。隐藏在手中，可以在达到获胜条件时立刻打出并赢得游戏。</p>
+                    <p className="text-slate-600 text-xs font-medium leading-relaxed">每张1分，买到即自动计入获胜分数，无需手动打出；不占每回合的发展卡使用次数。</p>
                   </div>
 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
@@ -747,7 +758,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>
-                    <p className="text-slate-600 text-xs font-medium leading-relaxed">打出后可以免费在地图上建设两条道路或船只（必须符合建造规则）。</p>
+                    <p className="text-slate-600 text-xs font-medium leading-relaxed">免费建造至多两段道路或船只，仍须满足连接、地形、封锁和棋子数量限制。</p>
                   </div>
 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
@@ -757,7 +768,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>
-                    <p className="text-slate-600 text-xs font-medium leading-relaxed">打出后可以立刻从银行免费拿取任意两张你选择的资源卡。</p>
+                    <p className="text-slate-600 text-xs font-medium leading-relaxed">从银行拿取2张资源，可选同种，受库存限制。</p>
                   </div>
 
                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
@@ -767,7 +778,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </h4>
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">共 2 张</span>
                     </div>
-                    <p className="text-slate-600 text-xs font-medium leading-relaxed">打出后声明一种资源，所有其他玩家必须将他们手中该种资源的所有卡片全部交给你。</p>
+                    <p className="text-slate-600 text-xs font-medium leading-relaxed">选择一种资源，收取所有其他玩家手中的该种资源卡。</p>
                   </div>
                 </div>
               </div>
