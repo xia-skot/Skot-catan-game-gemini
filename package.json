@@ -7,6 +7,7 @@
     "dev": "tsx server.ts",
     "demo": "tsx server.ts --demo",
     "test:mobile": "playwright test",
+    "test:unit": "node --import tsx --test tests/leaderboard.test.ts src/localMessageDisplay.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

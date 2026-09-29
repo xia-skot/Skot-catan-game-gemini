@@ -12,6 +12,10 @@ import nodemailer from 'nodemailer';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import assetManifest from './src/assetManifest.json';
 import { applySettingsPatch, getRoomController } from './shared/roomSetup';
+import { computeLeaderboardUserStats } from './server/leaderboard';
+import { mongoLeaderboardStore, registerLeaderboardRoutes } from './server/leaderboardRoutes';
+import { createDemoLeaderboardStore } from './server/leaderboardDemo';
+import { beginLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from './server/leaderboardRecording';
 const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
@@ -70,10 +74,11 @@ async function startServer() {
   let messagesCollection: any = null;
   let feedbackCollection: any = null;
   let aboutCollection: any = null;
+  const demoLeaderboard = DEMO_MODE ? createDemoLeaderboardStore() : null;
   
   if (DEMO_MODE) {
     const { attachDemoApi } = await import('./demo/server');
-    messagesCollection = attachDemoApi(app, JWT_SECRET, () => rooms.clear());
+    messagesCollection = attachDemoApi(app, JWT_SECRET, () => { rooms.clear(); demoLeaderboard?.reset(); });
   }
 
   if (MONGODB_URI) {
@@ -157,6 +162,10 @@ async function startServer() {
   });
 
   // API routes FIRST
+  registerLeaderboardRoutes(app, authMiddleware, adminMiddleware, demoLeaderboard?.store || mongoLeaderboardStore(() => ({
+    games: gamesCollection, users: usersCollection, settings: aboutCollection,
+  })));
+  if (demoLeaderboard) app.get('/api/admin/stats', authMiddleware, adminMiddleware, (_req, res) => res.json(demoLeaderboard.stats()));
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
@@ -638,7 +647,11 @@ async function startServer() {
   app.delete('/api/admin/messages/:id', authMiddleware, adminMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
+      if (!/^[a-f\d]{24}$/i.test(id)) return res.status(400).json({ error: '无效的消息编号' });
       if (!messagesCollection) return res.status(500).json({ error: 'DB未连接' });
+      const message = await messagesCollection.findOne({ _id: new ObjectId(id) });
+      if (!message) return res.status(404).json({ error: '消息不存在' });
+      if (message.type === 'private' || message.targetUserId) return res.status(409).json({ error: '聊天记录不再删除，请使用清屏或隐藏会话' });
       await messagesCollection.deleteOne({ _id: new ObjectId(id) });
       res.json({ success: true });
     } catch (err) {
@@ -846,10 +859,12 @@ async function startServer() {
       
       let allUsers = usersCollection ? await usersCollection.find({ isGuest: false }).sort({ createdAt: -1 }).project({ password: 0 }).toArray() : [];
       const allGames = gamesCollection ? await gamesCollection.find().toArray() : [];
+      const identityUsers = usersCollection ? await usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray() : [];
+      const rankedStats = computeLeaderboardUserStats(allGames, identityUsers);
       
       allUsers = allUsers.map(u => {
         const stats = computeUserGameStats(allGames, u.username);
-        return { ...u, ...stats };
+        return { ...u, ...stats, recent3DayGames: rankedStats.get(String(u._id))?.recent3DayGames || 0 };
       });
       
       const latestUsers = allUsers.slice(0, 10);
@@ -1313,7 +1328,12 @@ async function startServer() {
       }
     });
 
-    socket.on('join_room', (roomId: string, playerId: string, playerName: string, asSpectator?: boolean) => {
+    socket.on('join_room', (roomId: string, playerId: string, playerName: string, asSpectator?: boolean, authToken?: string) => {
+      let verifiedUserId: string | undefined;
+      try {
+        const identity = jwt.verify(authToken || '', JWT_SECRET) as any;
+        if (identity.userId === playerId && !identity.isGuest && identity.role !== 'guest') verifiedUserId = identity.userId;
+      } catch { /* Legacy clients can play, but cannot claim a ranked account. */ }
       touchRoom(roomId);
       if (!playerId) playerId = socket.id;
       if (!playerName) playerName = '玩家';
@@ -1367,6 +1387,9 @@ async function startServer() {
         }
       }
       
+      const joinedPlayer = room.players.find((p: any) => p.id === playerId);
+      if (joinedPlayer) joinedPlayer.userId = verifiedUserId;
+
       // Fallback: if server thinks current host is a bot or missing
       const currentHost = room.players.find((p: any) => p.id === room.hostId);
       if (!currentHost || currentHost.isBot) {
@@ -1507,18 +1530,20 @@ async function startServer() {
 
     socket.on('update_game_state', async (roomId: string, gameState: any) => {
       const room = rooms.get(roomId);
+      if (!room || !socket.rooms.has(roomId) || !room.players.some((p: any) => p.socketId === socket.id && !p.disconnected) ||
+          !gameState || !Array.isArray(gameState.players)) return;
+      const isSpectatorSocket = room.spectators?.some((s: any) => s.socketId === socket.id || s.id === socket.id);
+      if (isSpectatorSocket) return;
+      const previousState = room.gameState;
+      // Commit the in-memory transition before awaiting persistence, so two winner updates cannot insert twice.
+      room.gameState = gameState;
+      socket.broadcast.to(roomId).emit('game_state_updated', gameState);
       if (room) {
         touchRoom(roomId);
 
-        // Ignore update_game_state from spectators
-        const isSpectatorSocket = room.spectators?.some((s: any) => s.socketId === socket.id || s.id === socket.id);
-        if (isSpectatorSocket) {
-          console.log(`[Server] Ignored update_game_state from spectator socket ${socket.id}`);
-          return;
-        }
         // If a winner is just declared, save game using gamesCollection
         if (gameState && gameState.winnerId !== undefined && gameState.winnerId !== null && 
-            (!room.gameState || room.gameState.winnerId === undefined || room.gameState.winnerId === null)) {
+            (!previousState || previousState.winnerId === undefined || previousState.winnerId === null || hasUnsavedLeaderboardResult(room))) {
             
             if (gamesCollection) {
               const gameRecord = {
@@ -1559,16 +1584,14 @@ async function startServer() {
                  completedAt: new Date()
               };
               try {
-                await gamesCollection.insertOne(gameRecord);
+                await persistLeaderboardResult(room, gameRecord, gamesCollection);
                 console.log(`[Server] Game ${roomId} result saved.`);
               } catch(e) {
                 console.error('Failed to save game result:', e);
               }
             }
         }
-        room.gameState = gameState;
       }
-      socket.broadcast.to(roomId).emit('game_state_updated', gameState);
     });
 
     socket.on('react_to_trade', (roomId: string, tradeId: string, playerId: number, reaction: 'accept' | 'reject') => {
@@ -1661,9 +1684,9 @@ async function startServer() {
 
     socket.on('start_game', (roomId: string, initialGameState: any) => {
       const room = rooms.get(roomId);
-      if (room) {
-        room.gameState = initialGameState;
-      }
+      if (!room || room.gameState || !room.players.some((p: any) => p.id === room.hostId && p.socketId === socket.id) ||
+          !beginLeaderboardGame(room, initialGameState)) return;
+      room.gameState = initialGameState;
       io.to(roomId).emit('game_init', initialGameState, { entry: 'start' });
     });
 

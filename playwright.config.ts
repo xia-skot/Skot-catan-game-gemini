@@ -5,6 +5,7 @@ const edge = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const chromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (existsSync(edge) ? edge : undefined);
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   timeout: 60000,
   workers: 1,
   fullyParallel: false,
