@@ -2,6 +2,7 @@ import {
   DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, LEADERBOARD_TIME_ZONE,
   monthBounds, recordTime, type MonthlyLeaderboard,
 } from '../shared/leaderboard';
+import { recordedPlayerScore, resultRankPoints } from '../shared/gameResult';
 
 type StoredDocument = Record<string, any>;
 interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null }
@@ -26,10 +27,11 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
     if (player.isSpectator === true || player.role === 'spectator') continue;
     const id = seatId(player.id);
     const isBot = stableIdentity ? player.isOriginalBot : player.isBot;
+    const score = recordedPlayerScore(player);
     if (id === null || typeof player.name !== 'string' || !player.name.trim() ||
-        typeof isBot !== 'boolean' || !Number.isSafeInteger(player.score) || player.score < 0) return null;
+        typeof isBot !== 'boolean' || score === null) return null;
     players.push({ id, name: normalizeName(player.name), isBot,
-      isGuest: player.isGuest === true, score: player.score,
+      isGuest: player.isGuest === true, score,
       userId: typeof player.userId === 'string' && player.userId ? player.userId : null,
       sessionId: typeof player.sessionId === 'string' && player.sessionId ? player.sessionId : null });
   }
@@ -123,7 +125,7 @@ export function buildMonthlyLeaderboard(records: readonly StoredDocument[], user
     for (const { user, player } of creditedPlayers(game, resolve)) {
       const userId = String(user!._id);
       const row = totals.get(userId) || { userId, username: user!.username, points: 0, gameCount: 0, wins: 0 };
-      row.points += game.players.length - game.players.filter(other => other.score > player.score).length;
+      row.points += resultRankPoints(game.players, player).points;
       row.gameCount++;
       if (player.id === game.winnerId) row.wins++;
       totals.set(userId, row);

@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v13.zip'
+$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v14.zip'
 $directories = @('.github', 'app', 'demo', 'public', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',

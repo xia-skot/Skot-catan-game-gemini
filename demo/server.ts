@@ -37,7 +37,7 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   app.get('/api/feedback/prompt', (_req, res) => res.json({ prompt: '演示反馈' }));
   app.post('/api/feedback', (_req, res) => res.json({ success: true }));
   app.use('/api', (req, res, next) => {
-    const allowed = ['/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats'];
+    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats'];
     if (allowed.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'))) return next();
     res.status(403).json({ error: '此操作不在本地演示范围内' });
   });
@@ -45,6 +45,12 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
     find: () => ({ sort: () => ({ toArray: async () => [...messages].sort((a, b) => b.createdAt - a.createdAt) }) }),
     findOne: async (filter: any) => messages.find(item => matches(item, filter)) || null,
     insertOne: async (document: any) => { const _id = new ObjectId(); messages.push({ ...document, _id }); return { insertedId: _id }; },
+    updateOne: async (filter: any, update: any) => {
+      const document = messages.find(item => matches(item, filter));
+      if (!document) return { matchedCount: 0 };
+      Object.assign(document, update.$set);
+      return { matchedCount: 1 };
+    },
     deleteOne: async (filter: any) => { const index = messages.findIndex(item => matches(item, filter)); if (index >= 0) messages.splice(index, 1); return { deletedCount: index >= 0 ? 1 : 0 }; },
     deleteMany: async (filter: any) => { const before = messages.length; messages = messages.filter(item => !matches(item, filter)); return { deletedCount: before - messages.length }; },
   };
