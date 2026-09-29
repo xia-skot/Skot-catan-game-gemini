@@ -44,7 +44,9 @@ async function readAssetBlob(src: string, mediaType: 'image' | 'audio', reload =
     }
   }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  // The bundled BGM can take over 12 seconds on mobile connections.
+  // Keep a finite deadline without aborting otherwise valid slow downloads.
+  const timer = setTimeout(() => controller.abort(), mediaType === 'audio' ? 60000 : 30000);
   try {
     const response = await fetch(src, { signal: controller.signal, cache: reload ? 'reload' : 'default' });
     if (!response.ok || !response.headers.get('content-type')?.startsWith(`${mediaType}/`)) {
