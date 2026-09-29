@@ -6,11 +6,11 @@ import worker from '../gateway/worker';
 import { DEFAULT_GATEWAY_CONFIG, gatewayTarget, validateGatewayConfig } from '../shared/gateway';
 import { registerGatewayRoutes } from '../server/gatewayRoutes';
 
-const config = { enabled: true, fallback: 'https://skot-game.onrender.com',
+const config = { enabled: true, fallback: 'https://skot-game01.onrender.com',
   sites: { early: 'https://one.onrender.com', middle: 'https://two.onrender.com', late: 'https://three.onrender.com' } };
 function environment() {
-  let stored: string | null = null;
-  return { ROUTING: { get: async () => stored, put: async (_key: string, value: string) => { stored = value; } },
+  const stored = new Map<string, string>();
+  return { ROUTING: { get: async (key: string) => stored.get(key) ?? null, put: async (key: string, value: string) => { stored.set(key, value); } },
     GATEWAY_ADMIN_TOKEN: 'test-secret-for-gateway-at-least-32-characters' };
 }
 

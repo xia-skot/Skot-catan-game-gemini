@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, User, Lock, ArrowRight, Loader2, Database, RotateCcw, X, Sparkles } from 'lucide-react';
 import { socketService } from '../socketService';
+import { syncSessionToEntry } from '../entrySessionBridge';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -106,6 +107,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       localStorage.setItem('catan_auth_token', data.token);
       localStorage.setItem('catan_player_name', data.user.username);
+      syncSessionToEntry(data.token, data.user.username);
       socketService.playerId = data.user.id; // Switch the socket ID to their database ID
       onLoginSuccess(data.user);
     } catch (err: any) {
@@ -161,6 +163,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       localStorage.setItem('catan_guest_id', data.user.id);
       localStorage.setItem('catan_auth_token', data.token);
       localStorage.setItem('catan_player_name', data.user.username);
+      syncSessionToEntry(data.token, data.user.username);
       socketService.playerId = data.user.id;
       setShowGuestModal(false);
       onLoginSuccess(data.user);

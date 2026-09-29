@@ -11,6 +11,7 @@ import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds, messageReadKey } from '../messageReadState';
 import { MESSAGE_DISPLAY_EVENT, conversationIsHidden, hideMessageConversations, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay } from '../localMessageDisplay';
+import { syncSessionToEntry } from '../entrySessionBridge';
 
 function UnreadBadge({ count }: { count: number }) {
   return count > 0 ? <span aria-label={`${count}条未读消息`} data-unread-count={count} className="absolute -top-1 -right-2 min-w-5 h-5 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-xs">{count > 99 ? '99+' : count}</span> : null;
@@ -808,6 +809,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       setSuccessText('修改成功！');
       localStorage.setItem('catan_auth_token', data.token);
       localStorage.setItem('catan_player_name', data.user.username);
+      syncSessionToEntry(data.token, data.user.username);
       setOldPassword('');
       setPassword('');
       

@@ -183,6 +183,7 @@ import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
 import { useLobbySwipe } from './useLobbySwipe';
 import { MESSAGE_READ_EVENT, readMessageIds } from './messageReadState';
+import { clearEntrySession, syncSessionToEntry, waitForEntrySession } from './entrySessionBridge';
 import { hasBackHandler, isInstalledDisplay, requestAppBack, runTopBackHandler, shouldSuppressGestureClick, suppressGestureClick, useBackHandler } from './navigation';
 import { 
   Dices, 
@@ -922,6 +923,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
 
   useEffect(() => {
     const checkAuth = async () => {
+      await waitForEntrySession();
       const token = localStorage.getItem('catan_auth_token');
       if (token) {
         try {
@@ -934,16 +936,20 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                 setCurrentUser(data.user);
                 socketService.playerId = data.user.id;
                 localStorage.setItem('catan_player_name', data.user.username);
+                syncSessionToEntry(token, data.user.username);
               } else {
                 localStorage.removeItem('catan_auth_token');
+                clearEntrySession();
               }
             } else {
               localStorage.removeItem('catan_auth_token');
+              clearEntrySession();
             }
           } else {
             console.warn('[App] Auth check status:', res.status);
             if (res.status === 401 || res.status === 403) {
               localStorage.removeItem('catan_auth_token');
+              clearEntrySession();
             }
           }
         } catch (err) {
@@ -1365,6 +1371,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
     localStorage.removeItem('catan_has_created_room');
     localStorage.removeItem('catan_game_active');
     localStorage.removeItem('catan_is_spectator');
+    clearEntrySession();
 
     const freshGuestId = Math.random().toString(36).substring(2, 10);
     localStorage.setItem('catan_player_id', freshGuestId);
