@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { conversationIsHidden, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay, visibleConversationMessages } from './localMessageDisplay.ts';
+import { conversationIsHidden, hideMessageConversations, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay, visibleConversationMessages } from './localMessageDisplay.ts';
+
+test('list clearing persists all cards in one write, retains messages and allows new messages to resurface', () => {
+  const store = storage();
+  let writes = 0;
+  const counted = { getItem: store.getItem, setItem: (key: string, value: string) => { writes++; store.setItem(key, value); } };
+  const messages = Object.freeze([{ id: 'retained', content: '保留记录' }]);
+  hideMessageConversations('bulk-hide', [{ key: 'player:one', messages }, { key: 'player:empty', messages: [] }], counted);
+  assert.equal(writes, 1);
+  const state = readMessageDisplay('bulk-hide', counted);
+  assert.equal(conversationIsHidden(state['player:one'], messages), true);
+  assert.equal(conversationIsHidden(state['player:empty'], []), true);
+  assert.deepEqual(visibleConversationMessages(state['player:one'], messages), messages);
+  assert.equal(conversationIsHidden(state['player:empty'], [{ id: 'new' }]), false);
+});
 
 function storage() {
   const values = new Map<string, string>();

@@ -74,6 +74,25 @@ export function updateMessageDisplay(
   if (action === 'clear') next.clearedMessageIds = [...new Set([...(next.clearedMessageIds || []), ...ids])];
   if (action === 'reveal') delete next.hiddenMessageIds;
   const updated = { ...state, [conversation]: next };
+  return saveMessageDisplay(account, updated, storage);
+}
+
+export function hideMessageConversations(
+  account: string,
+  conversations: readonly { key: string; messages: readonly MessageIdentity[] }[],
+  storage?: DisplayStorage,
+): { state: MessageDisplayState; persisted: boolean } {
+  const updated = { ...readMessageDisplay(account, storage) };
+  for (const conversation of conversations) {
+    updated[conversation.key] = {
+      ...updated[conversation.key],
+      hiddenMessageIds: [...new Set(conversation.messages.flatMap(message => message.id ? [message.id] : []))],
+    };
+  }
+  return saveMessageDisplay(account, updated, storage);
+}
+
+function saveMessageDisplay(account: string, updated: MessageDisplayState, storage?: DisplayStorage) {
   memory.set(account, updated);
   let persisted = true;
   try {

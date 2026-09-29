@@ -110,22 +110,25 @@ for (const width of [1280, 360, 393]) {
       await expect(input).toHaveValue('');
       assert.ok((await input.boundingBox())!.height <= 32);
       await expect(chat.getByText('Sent with button', { exact: false })).toBeVisible();
-      await chat.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
-      await expect(chat.getByText('暂无消息', { exact: true })).toBeVisible();
+      await expect(chat.getByRole('button', { name: '清屏（仅本机）', exact: true })).toHaveCount(0);
       assert.equal(records.length, 4);
       assert.ok(mutations.every(request => request.startsWith('POST ')));
       await back(page);
       await expect(chat).toHaveCount(0);
       await expect(page.getByRole('button', { name: '打开与Official的私信' })).toBeVisible();
+      await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
+      await expect(page.locator('[data-conversation]')).toHaveCount(0);
       await back(page);
       await expect(page.getByRole('button', { name: '历史战绩', exact: true })).toBeVisible();
       await page.reload();
       await openChatList(page);
+      await expect(page.locator('[data-conversation]')).toHaveCount(0);
+      await page.getByRole('button', { name: '已隐藏会话 (1)' }).click();
       await page.getByRole('button', { name: '打开与Official的私信' }).click();
-      await expect(chat.getByText('暂无消息', { exact: true })).toBeVisible();
+      await expect(chat.getByText('Original incoming', { exact: true })).toBeVisible();
       records.push({ ...records[0], id: 'new-after-clear', content: 'New visible', createdAt: 1000 });
       await expect(chat.getByText('New visible', { exact: true })).toBeVisible({ timeout: 10000 });
-      await expect(chat.getByText('Original incoming', { exact: true })).toHaveCount(0);
+      await expect(chat.getByText('Original incoming', { exact: true })).toBeVisible();
       await page.setViewportSize({ width, height: 420 });
       await expect.poll(async () => Math.round((await chat.boundingBox())!.height)).toBe(420);
       const inputBox = (await input.boundingBox())!;
@@ -184,7 +187,7 @@ test('left swipe, keyboard alternative, reload, resurfacing, unread and account 
   } finally { await page.close(); }
 });
 
-test('admin can hide empty roster cards and clear one player without touching another account', { timeout: 60000 }, async () => {
+test('admin can hide empty roster cards and clear the list without touching another account', { timeout: 60000 }, async () => {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 } });
   try {
     const { records, mutations } = await fixture(page, true);
@@ -199,9 +202,11 @@ test('admin can hide empty roster cards and clear one player without touching an
     await expect(empty).toBeVisible({ timeout: 10000 });
     await expect(empty.locator('[data-unread-count="1"]')).toBeVisible();
     await page.getByRole('button', { name: '打开与Player的私信' }).click();
-    await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
-    await expect(page.locator('.chat-screen').getByText('暂无消息', { exact: true })).toBeVisible();
+    await expect(page.locator('.chat-screen').getByText('Original incoming', { exact: true })).toBeVisible();
     await back(page);
+    await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
+    await expect(page.locator('[data-conversation]')).toHaveCount(0);
+    await page.getByRole('button', { name: '已隐藏会话 (2)' }).click();
     await page.getByRole('button', { name: '打开与Empty的私信' }).click();
     await expect(page.locator('.chat-screen').getByText('First from Empty', { exact: true })).toBeVisible();
     await back(page);

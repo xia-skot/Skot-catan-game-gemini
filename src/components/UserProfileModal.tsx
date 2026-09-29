@@ -8,7 +8,7 @@ import { Leaderboard } from './Leaderboard';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds } from '../messageReadState';
-import { MESSAGE_DISPLAY_EVENT, conversationIsHidden, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay, visibleConversationMessages } from '../localMessageDisplay';
+import { MESSAGE_DISPLAY_EVENT, conversationIsHidden, hideMessageConversations, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay } from '../localMessageDisplay';
 
 function UnreadBadge({ count }: { count: number }) {
   return count > 0 ? <span aria-label={`${count}条未读消息`} data-unread-count={count} className="absolute -top-1 -right-2 min-w-5 h-5 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-xs">{count > 99 ? '99+' : count}</span> : null;
@@ -236,6 +236,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setSelectedChatPlayer(null);
     setReplyText('');
     setShowHiddenConversations(false);
+    setTimestampDates({});
     setDisplayNotice('');
     window.addEventListener(MESSAGE_DISPLAY_EVENT, refresh);
     window.addEventListener('storage', onStorage);
@@ -385,12 +386,12 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   }, [isAdmin, playerPrivateMsgs, selectedChatPlayer, adminConversations]);
 
   const conversationKey = (name?: string | null) => isAdmin ? `player:${name || ''}` : 'admin';
-  const activeConversationKey = conversationKey(selectedChatPlayer);
-  const activeChatMsgs = React.useMemo(() => visibleConversationMessages(displayState[activeConversationKey], activeRawChatMsgs), [displayState, activeConversationKey, activeRawChatMsgs]);
+  const activeChatMsgs = activeRawChatMsgs;
+  const [timestampDates, setTimestampDates] = useState<Record<string, boolean>>({});
   const visibleAdminConversations = adminConversations.filter(conv => !conversationIsHidden(displayState[conversationKey(conv.username)], conv.msgs));
   const playerConversationHidden = conversationIsHidden(displayState.admin, playerPrivateMsgs);
   const hiddenConversationCount = isAdmin ? adminConversations.length - visibleAdminConversations.length : Number(playerConversationHidden);
-  const visiblePlayerMsgs = visibleConversationMessages(displayState.admin, playerPrivateMsgs);
+  const visiblePlayerMsgs = playerPrivateMsgs;
 
   const changeConversationDisplay = (key: string, action: 'hide' | 'clear' | 'reveal', msgs: any[] = []) => {
     const result = updateMessageDisplay(account, key, action, msgs);
@@ -409,41 +410,47 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     }
   }, [account, displayState, isAdmin, adminConversations, playerPrivateMsgs]);
 
-  const formatChatTime = (rawTime: any): string => {
+  const formatChatTime = (rawTime: any, includeDate?: boolean): string => {
     let d: Date;
     if (typeof rawTime === 'number') d = new Date(rawTime);
     else if (typeof rawTime === 'string') {
       const parsed = new Date(rawTime);
-      d = isNaN(parsed.getTime()) ? new Date() : parsed;
+      d = parsed;
     } else {
       return '';
     }
+    if (isNaN(d.getTime())) return '';
     const now = new Date();
     const isToday = d.toDateString() === now.toDateString();
     const hours = String(d.getHours()).padStart(2, '0');
     const mins = String(d.getMinutes()).padStart(2, '0');
-    if (isToday) {
+    if (includeDate === false || (includeDate === undefined && isToday)) {
       return `${hours}:${mins}`;
     }
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${month}-${day} ${hours}:${mins}`;
+    return `${d.getFullYear() !== now.getFullYear() ? `${d.getFullYear()}-` : ''}${month}-${day} ${hours}:${mins}`;
   };
 
   const processedChatMsgs = React.useMemo(() => {
     let lastShownTimeMs = 0;
+    let previousDay = '';
     return activeChatMsgs.map((msg, index) => {
       const rawTime = msg.createdAt || (msg.date ? new Date(msg.date).getTime() : 0);
       const timeMs = typeof rawTime === 'number' ? rawTime : (rawTime ? new Date(rawTime).getTime() : 0);
+      const day = timeMs && Number.isFinite(timeMs) ? new Date(timeMs).toDateString() : '';
+      const startsDay = !!day && day !== previousDay;
+      if (day) previousDay = day;
       let showTime = false;
-      if (index === 0 || !lastShownTimeMs || (timeMs && Math.abs(timeMs - lastShownTimeMs) >= 60 * 1000)) {
+      if (startsDay || index === 0 || !lastShownTimeMs || (timeMs && Math.abs(timeMs - lastShownTimeMs) >= 60 * 1000)) {
         showTime = true;
         if (timeMs) lastShownTimeMs = timeMs;
       }
       return {
         ...msg,
         showTime,
-        timeLabel: formatChatTime(rawTime || msg.date)
+        rawTime: rawTime || msg.date,
+        startsDay,
       };
     });
   }, [activeChatMsgs]);
@@ -484,8 +491,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   };
 
   const handleClearScreen = () => {
-    markMessagesAsRead(activeRawChatMsgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id));
-    changeConversationDisplay(activeConversationKey, 'clear', activeRawChatMsgs);
+    const conversations = isAdmin
+      ? adminConversations.map(conv => ({ key: conversationKey(conv.username), messages: conv.msgs }))
+      : [{ key: 'admin', messages: playerPrivateMsgs }];
+    markMessagesAsRead(conversations.flatMap(conv => conv.messages.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id)));
+    const result = hideMessageConversations(account, conversations);
+    setDisplaySnapshot({ account, state: result.state });
+    setDisplayNotice(result.persisted ? '' : '本地保存失败，此次显示设置仅在当前页面有效。');
+    setShowHiddenConversations(false);
   };
 
   const openConversation = (partnerName?: string) => {
@@ -870,15 +883,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0"><button
-              onClick={handleClearScreen}
-              disabled={activeChatMsgs.length === 0}
-              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0 disabled:opacity-40 flex items-center gap-1 text-xs"
-              title="清屏（仅本机隐藏现有消息，保留聊天记录）"
-              aria-label="清屏（仅本机）"
-            >
-              <Eraser size={16} />清屏
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
             <button onClick={requestAppBack} title="返回" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
           </div>
 
@@ -903,9 +908,11 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                     {/* Centered Timestamp (仅超过1分钟才显示，1分钟以内不重复显示) */}
                     {msg.showTime && (
                       <div className="flex justify-center my-2 select-none">
-                        <span className="text-[10px] text-slate-400 bg-slate-200/60 px-2.5 py-0.5 rounded-full font-medium shadow-2xs">
-                          {msg.timeLabel || msg.date}
-                        </span>
+                        <button type="button" title="切换日期显示" aria-label="切换日期显示"
+                          onClick={() => setTimestampDates(previous => ({ ...previous, [msg.id]: !(previous[msg.id] ?? msg.startsDay) }))}
+                          className="text-[10px] text-slate-400 bg-slate-200/60 px-2.5 py-0.5 rounded-full font-medium shadow-2xs">
+                          {formatChatTime(msg.rawTime, timestampDates[msg.id] ?? msg.startsDay) || msg.date}
+                        </button>
                       </div>
                     )}
 
@@ -971,7 +978,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       )}
 
       {/* Header Profile Section */}
-      {activeView !== 'leaderboard' && <div className={`bg-white px-4 sm:px-5 ${headerPaddingClass} shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm`}>
+      {activeView !== 'leaderboard' && <div data-page-header className={`bg-white px-4 sm:px-5 ${headerPaddingClass} shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm`}>
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center border-2 border-indigo-200/50 relative overflow-hidden shrink-0">
             <User size={22} />
@@ -993,6 +1000,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         </div>
         
         <div className="flex items-center gap-1">
+            {activeView === 'private_chat' && !inPrivateChatDetail && (
+              <button type="button" onClick={handleClearScreen}
+                disabled={isAdmin ? visibleAdminConversations.length === 0 : playerConversationHidden}
+                title="清屏（仅本机隐藏会话）" aria-label="清屏（仅本机）"
+                className="flex items-center gap-1 p-2 text-xs text-slate-500 hover:bg-slate-100 rounded-lg disabled:opacity-40">
+                <Eraser size={16} />清屏
+              </button>
+            )}
             {(activeView !== 'menu' || !inline) && (
               <button 
                 onClick={requestAppBack}
@@ -1595,7 +1610,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                       </div>
                     ) : (
                       (showHiddenConversations ? adminConversations : visibleAdminConversations).map((conv) => {
-                        const visibleMsgs = visibleConversationMessages(displayState[conversationKey(conv.username)], conv.msgs);
+                        const visibleMsgs = conv.msgs;
                         const lastMsg = visibleMsgs[visibleMsgs.length - 1];
                         return (
                           <ConversationRow key={conv.username} name={conv.username} onOpen={() => openConversation(conv.username)} onHide={() => handleHideConversation(conv.username)}>

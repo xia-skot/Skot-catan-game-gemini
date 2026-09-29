@@ -9,7 +9,7 @@ async function openList(page: Page) {
   await page.getByText('私信', { exact: true }).click();
 }
 
-test('chat starts on one line, Enter inserts a newline and clearing never deletes records', async ({ page }, info) => {
+test('list clearing hides cards, chat retains records and Enter inserts a newline', async ({ page }, info) => {
   const mutations: string[] = [];
   page.on('request', request => {
     if (request.url().includes('/messages') && request.method() !== 'GET') mutations.push(request.method());
@@ -29,21 +29,86 @@ test('chat starts on one line, Enter inserts a newline and clearing never delete
   await chat.getByRole('button', { name: '发送', exact: true }).click();
   await expect(input).toHaveValue('');
   await expect(chat.getByText('第一行', { exact: false })).toBeVisible();
-  await chat.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
-  await expect(chat.getByText('暂无消息', { exact: true })).toBeVisible();
+  await expect(chat.getByRole('button', { name: '清屏（仅本机）', exact: true })).toHaveCount(0);
   await page.evaluate(() => history.back());
   await expect(chat).toHaveCount(0);
+  await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
+  await expect(page.locator('[data-conversation]')).toHaveCount(0);
   await page.evaluate(() => history.back());
   await expect(page.getByText('历史战绩', { exact: true })).toBeVisible();
   await openList(page);
+  await expect(page.locator('[data-conversation]')).toHaveCount(0);
+  await page.getByRole('button', { name: '已隐藏会话 (1)' }).click();
   await page.getByRole('button', { name: '打开与肖隐弦的私信' }).click();
-  await expect(chat.getByText('暂无消息', { exact: true })).toBeVisible();
+  await expect(chat.getByText('第一行', { exact: false })).toBeVisible();
   const stored = await page.evaluate(async () => {
     const response = await fetch('/api/messages', { headers: { Authorization: `Bearer ${localStorage.getItem('catan_auth_token')}` } });
     return response.json();
   });
   expect(stored.messages.some((message: any) => message.content === '第一行\n第二行')).toBe(true);
   expect(mutations).toEqual(['POST']);
+});
+
+test('crossing midnight always shows a date and each timestamp toggles its date', async ({ page }) => {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  await page.route('**/api/messages', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    const original = data.messages.find((message: any) => message.type === 'private');
+    data.messages = [
+      { ...original, id: 'before-midnight', createdAt: midnight.getTime() - 15000, content: '昨天最后一条' },
+      { ...original, id: 'after-midnight', createdAt: midnight.getTime() + 15000, content: '今天第一条' },
+    ];
+    await route.fulfill({ response, json: data });
+  });
+  await openList(page);
+  await page.getByRole('button', { name: '打开与肖隐弦的私信' }).click();
+  const times = page.locator('.chat-screen').getByRole('button', { name: '切换日期显示', exact: true });
+  await expect(times).toHaveCount(2);
+  await expect(times.nth(1)).toHaveText(/\d{2}-\d{2} 00:00/);
+  await times.nth(1).click();
+  await expect(times.nth(1)).toHaveText('00:00');
+  await times.nth(1).click();
+  await expect(times.nth(1)).toHaveText(/\d{2}-\d{2} 00:00/);
+});
+
+test('admin list clearing hides every card including players without messages', async ({ page }) => {
+  await page.route('**/api/messages', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.allPlayers = [...(data.allPlayers || []), '尚未聊天的玩家'];
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto('/?demoRole=admin');
+  await expect(page.locator('[data-lobby-tabs]')).toBeVisible({ timeout: 30000 });
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByText('私信', { exact: true }).click();
+  await expect(page.locator('[data-conversation]').first()).toBeVisible();
+  const count = await page.locator('[data-conversation]').count();
+  expect(count).toBeGreaterThan(1);
+  await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
+  await expect(page.locator('[data-conversation]')).toHaveCount(0);
+  await page.reload();
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByText('私信', { exact: true }).click();
+  await expect(page.locator('[data-conversation]')).toHaveCount(0);
+  await page.getByRole('button', { name: `已隐藏会话 (${count})` }).click();
+  await expect(page.locator('[data-conversation]')).toHaveCount(count);
+});
+
+test('lobby profile and rules headers have the same height', async ({ page }) => {
+  await page.goto('/');
+  const tabs = page.locator('.lobby-tab-bar');
+  await expect(tabs).toBeVisible({ timeout: 30000 });
+  await tabs.getByRole('button', { name: '大厅', exact: true }).click();
+  const lobbyHeight = (await page.locator('[data-room-list-header]').boundingBox())!.height;
+  for (const name of ['我的', '规则']) {
+    await tabs.getByRole('button', { name, exact: true }).click();
+    const header = page.locator('[data-page-header]').filter({ hasText: name === '我的' ? 'demo@example.test' : '游戏规则与指南' });
+    await expect(header).toHaveCount(1);
+    expect(Math.abs((await header.boundingBox())!.height - lobbyHeight)).toBeLessThan(1);
+  }
 });
 
 test('left swipe hides only the local conversation and a new incoming message restores it', async ({ page }, info) => {

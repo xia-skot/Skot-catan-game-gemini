@@ -100,7 +100,7 @@ export const GameRoomsTab: React.FC<GameRoomsTabProps> = ({
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div data-room-list-header className="bg-white px-4 sm:px-5 py-3 flex items-center justify-between shrink-0 border-b border-slate-200/80 shadow-sm z-10">
+      <div data-room-list-header className="bg-white px-4 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between shrink-0 border-b border-slate-200/80 shadow-sm z-10">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-full bg-indigo-100 border-2 border-indigo-200 flex items-center justify-center shrink-0">
             <Swords size={24} className="text-indigo-500" />
