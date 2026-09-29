@@ -2,7 +2,7 @@
 var GATEWAY_SLOTS = ["early", "middle", "late"];
 var DEFAULT_GATEWAY_CONFIG = {
   enabled: false,
-  fallback: "https://skot-game.onrender.com",
+  fallback: "https://skot-game01.onrender.com",
   sites: { early: "", middle: "", late: "" }
 };
 function renderOrigin(value, optional = false) {
@@ -38,6 +38,7 @@ function gatewayTarget(config, now = /* @__PURE__ */ new Date(), requestedSlot) 
 var headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 var json = (value, status = 200) => Response.json(value, { status, headers });
 async function readConfig(env) {
+  if (!env.ROUTING) return structuredClone(DEFAULT_GATEWAY_CONFIG);
   const stored = await env.ROUTING.get("routing");
   return stored ? validateGatewayConfig(JSON.parse(stored)) : structuredClone(DEFAULT_GATEWAY_CONFIG);
 }
@@ -57,6 +58,7 @@ var worker_default = {
     try {
       if (url.pathname === "/api/admin/config") {
         if (!await authenticated(request, env.GATEWAY_ADMIN_TOKEN)) return json({ error: "\u672A\u6388\u6743\u8BBF\u95EE" }, 401);
+        if (!env.ROUTING) return json({ error: "\u5165\u53E3\u5C1A\u672A\u7ED1\u5B9A ROUTING KV \u547D\u540D\u7A7A\u95F4" }, 503);
         if (request.method === "GET") return json(await readConfig(env));
         if (request.method !== "PUT") return json({ error: "\u4E0D\u652F\u6301\u6B64\u64CD\u4F5C" }, 405);
         const body = await request.text();
@@ -97,9 +99,11 @@ var worker_default = {
       gatewayTarget(config, now).origin,
       gatewayTarget(config, new Date(now.getTime() - 6 * 36e5)).origin
     ]);
+    if (env.ENTRY_ORIGIN) origins.add(renderOrigin(env.ENTRY_ORIGIN));
     for (const origin of origins) {
-      const response = await fetch(`${origin}/api/health`, { redirect: "error", signal: AbortSignal.timeout(45e3) });
+      const response = await fetch(`${origin}/api/health`, { redirect: "follow", signal: AbortSignal.timeout(45e3) });
       if (!response.ok || (await response.json()).status !== "ok") throw new Error(`Health check failed: ${origin}`);
+      console.info(JSON.stringify({ event: "keep-alive", origin, status: response.status }));
     }
   }
 };

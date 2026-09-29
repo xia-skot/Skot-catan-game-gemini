@@ -6,7 +6,7 @@ export interface GatewayConfig {
   sites: Record<GatewaySlot, string>;
 }
 export const DEFAULT_GATEWAY_CONFIG: GatewayConfig = {
-  enabled: false, fallback: 'https://skot-game.onrender.com',
+  enabled: false, fallback: 'https://skot-game01.onrender.com',
   sites: { early: '', middle: '', late: '' },
 };
 

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: catan-render-entry
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ROUTING_API_URL
+        value: https://skot.catan-game.workers.dev/api/route
+      - key: FALLBACK_GAME_URL
+        value: https://skot-game01.onrender.com

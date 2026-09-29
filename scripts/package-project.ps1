@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v15.zip'
-$directories = @('.github', 'app', 'demo', 'gateway', 'public', 'scripts', 'server', 'shared', 'src', 'tests')
+$directories = @('.github', 'app', 'demo', 'gateway', 'public', 'render-entry', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',
   'metadata.json', 'README.md', 'DEPLOYMENT.md', 'DEPLOYMENT-ASSET-CHECK.json',
@@ -58,3 +58,17 @@ try {
   }
 } finally { $gatewayCheck.Dispose(); $gatewaySha.Dispose() }
 Get-Item -LiteralPath $gatewayArchivePath | Select-Object FullName,Length
+
+$renderEntryArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-render-entry-v1.zip'
+$renderEntryFiles = @('package.json', 'server.js', 'server.test.js', 'render.yaml', 'README.md')
+$renderEntryZip = [IO.Compression.ZipArchive]::new([IO.File]::Open($renderEntryArchivePath, [IO.FileMode]::CreateNew), [IO.Compression.ZipArchiveMode]::Create)
+try {
+  foreach ($relative in $renderEntryFiles) {
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($renderEntryZip, (Join-Path $projectRoot "render-entry/$relative"), $relative, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+  }
+} finally { $renderEntryZip.Dispose() }
+$renderEntryCheck = [IO.Compression.ZipFile]::OpenRead($renderEntryArchivePath)
+try {
+  if ($renderEntryCheck.Entries.Count -ne $renderEntryFiles.Count) { throw 'Render entry archive entry count differs' }
+} finally { $renderEntryCheck.Dispose() }
+Get-Item -LiteralPath $renderEntryArchivePath | Select-Object FullName,Length
