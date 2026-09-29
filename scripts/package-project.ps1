@@ -1,12 +1,12 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v12.zip'
+$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v13.zip'
 $directories = @('.github', 'app', 'demo', 'public', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',
   'metadata.json', 'README.md', 'DEPLOYMENT.md', 'DEPLOYMENT-ASSET-CHECK.json',
-  'EXTERNAL-KEEP-ALIVE.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md')
+  'EXTERNAL-KEEP-ALIVE.md', 'MOBILE-FIX-NOTES.md', 'MOBILE-VERIFICATION.md', 'BANDWIDTH-NOTES.md', 'BANDWIDTH-V13.json')
 foreach ($directory in $directories) {
   foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot $directory) -File -Recurse -Force) {
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked files are not included' }

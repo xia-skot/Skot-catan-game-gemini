@@ -1,8 +1,10 @@
+import { normalizeBotDifficulty, type BotDifficulty } from './botDifficulty';
 export interface SetupPlayer { id: string; name: string; isReady?: boolean; socketId?: string; disconnected?: boolean }
 export interface SetupSettings {
   playerCount: number;
   mapType: string;
   botConfig: boolean[];
+  botDifficulties?: BotDifficulty[];
   customBoard?: any[];
   customMapName?: string;
   customMapId?: string;
@@ -13,7 +15,7 @@ export interface SetupRoom {
   spectators?: SetupPlayer[];
   settings: SetupSettings;
 }
-export type SettingsPatch = Partial<SetupSettings> & { botSlot?: { index: number; enabled: boolean } };
+export type SettingsPatch = Partial<SetupSettings> & { botSlot?: { index: number; enabled: boolean }; botLevel?: { index: number; difficulty: BotDifficulty } };
 
 export function getRoomController(room: SetupRoom, includeSpectators = true): string | null {
   const connected = room.players.filter(player => !player.disconnected && !!player.socketId);
@@ -45,6 +47,12 @@ export function applySettingsPatch<T extends SetupRoom>(room: T, patch: Settings
   }
   if (Number.isInteger(patch.playerCount) && patch.playerCount! >= 2 && patch.playerCount! <= 6) settings.playerCount = patch.playerCount!;
   settings.botConfig = Array.from({ length: 10 }, (_, index) => !!(patch.botConfig || settings.botConfig)[index]);
+  settings.botDifficulties = Array.from({ length: 10 }, (_, index) => normalizeBotDifficulty(settings.botDifficulties?.[index]));
+  const level = patch.botLevel;
+  if (level && Number.isInteger(level.index) && level.index >= 0 && level.index < 10 &&
+      !getSetupSlots(room).some(item => item.index === level.index && item.player)) {
+    settings.botDifficulties[level.index] = normalizeBotDifficulty(level.difficulty);
+  }
   const slot = patch.botSlot;
   if (slot && Number.isInteger(slot.index) && slot.index >= 0 && slot.index < 10 && typeof slot.enabled === 'boolean') {
     const occupiedByHuman = getSetupSlots(room).some(item => item.index === slot.index && !!item.player);
