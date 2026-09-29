@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3, ArrowLeft, Mail, Volume2, Bug, Trash2, Play, Database, MessageSquare, Send, Bell, Info, RotateCw, ChevronDown, ChevronRight, MoreHorizontal, Eraser, Eye } from 'lucide-react';
+import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3, ArrowLeft, Mail, Volume2, Bug, Trash2, Play, Database, MessageSquare, Send, Bell, Info, RotateCw, ChevronDown, ChevronRight, MoreHorizontal, Eraser } from 'lucide-react';
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { Leaderboard } from './Leaderboard';
@@ -218,7 +218,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   }, [account]);
   const [displaySnapshot, setDisplaySnapshot] = useState(() => ({ account, state: readMessageDisplay(account) }));
   const displayState = displaySnapshot.account === account ? displaySnapshot.state : readMessageDisplay(account);
-  const [showHiddenConversations, setShowHiddenConversations] = useState(false);
   const [displayNotice, setDisplayNotice] = useState('');
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
@@ -235,8 +234,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setInPrivateChatDetail(false);
     setSelectedChatPlayer(null);
     setReplyText('');
-    setShowHiddenConversations(false);
-    setTimestampDates({});
+    setShowTimestampDates(false);
     setDisplayNotice('');
     window.addEventListener(MESSAGE_DISPLAY_EVENT, refresh);
     window.addEventListener('storage', onStorage);
@@ -299,12 +297,11 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     if (!isAdmin) return [];
     const map = new Map<string, { username: string; msgs: any[]; lastMsg: any }>();
 
-    // 预先填入所有已注册玩家，不论对方有没有发消息，统一显示对方昵称
-    allPlayerNames.forEach(pName => {
-      const clean = pName.trim();
-      if (clean && clean !== currentUser?.username && clean !== '管理员' && clean !== 'admin') {
-        map.set(clean, { username: clean, msgs: [], lastMsg: null });
-      }
+    // Explicitly opened conversations can exist before the first message is sent.
+    Object.entries(displayState).forEach(([key, display]) => {
+      if (!key.startsWith('player:') || display.hiddenMessageIds) return;
+      const name = key.slice('player:'.length);
+      if (name && name !== currentUser?.username) map.set(name, { username: name, msgs: [], lastMsg: null });
     });
 
     allRawPrivateMsgs.forEach(msg => {
@@ -364,7 +361,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       return a.username.localeCompare(b.username);
     });
     return result;
-  }, [allRawPrivateMsgs, isAdmin, currentUser, allPlayerNames]);
+  }, [allRawPrivateMsgs, isAdmin, currentUser, displayState]);
 
   const adminDisplayName = React.useMemo(() => {
     if (currentUser?.role === 'admin' && currentUser?.username) return currentUser.username;
@@ -387,10 +384,9 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
   const conversationKey = (name?: string | null) => isAdmin ? `player:${name || ''}` : 'admin';
   const activeChatMsgs = activeRawChatMsgs;
-  const [timestampDates, setTimestampDates] = useState<Record<string, boolean>>({});
+  const [showTimestampDates, setShowTimestampDates] = useState(false);
   const visibleAdminConversations = adminConversations.filter(conv => !conversationIsHidden(displayState[conversationKey(conv.username)], conv.msgs));
   const playerConversationHidden = conversationIsHidden(displayState.admin, playerPrivateMsgs);
-  const hiddenConversationCount = isAdmin ? adminConversations.length - visibleAdminConversations.length : Number(playerConversationHidden);
   const visiblePlayerMsgs = playerPrivateMsgs;
 
   const changeConversationDisplay = (key: string, action: 'hide' | 'clear' | 'reveal', msgs: any[] = []) => {
@@ -487,7 +483,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     const msgs = isAdmin ? adminConversations.find(conv => conv.username === partnerName)?.msgs || [] : playerPrivateMsgs;
     markMessagesAsRead(msgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id));
     changeConversationDisplay(conversationKey(partnerName), 'hide', msgs);
-    setShowHiddenConversations(false);
   };
 
   const handleClearScreen = () => {
@@ -498,7 +493,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     const result = hideMessageConversations(account, conversations);
     setDisplaySnapshot({ account, state: result.state });
     setDisplayNotice(result.persisted ? '' : '本地保存失败，此次显示设置仅在当前页面有效。');
-    setShowHiddenConversations(false);
   };
 
   const openConversation = (partnerName?: string) => {
@@ -909,9 +903,9 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                     {msg.showTime && (
                       <div className="flex justify-center my-2 select-none">
                         <button type="button" title="切换日期显示" aria-label="切换日期显示"
-                          onClick={() => setTimestampDates(previous => ({ ...previous, [msg.id]: !(previous[msg.id] ?? msg.startsDay) }))}
+                          onClick={() => setShowTimestampDates(previous => !previous)}
                           className="text-[10px] text-slate-400 bg-slate-200/60 px-2.5 py-0.5 rounded-full font-medium shadow-2xs">
-                          {formatChatTime(msg.rawTime, timestampDates[msg.id] ?? msg.startsDay) || msg.date}
+                          {formatChatTime(msg.rawTime, msg.startsDay || showTimestampDates) || msg.date}
                         </button>
                       </div>
                     )}
@@ -1557,13 +1551,15 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                 className="space-y-3 font-sans py-2"
               >
                 {displayNotice && <p role="status" className="text-xs text-amber-700">{displayNotice}</p>}
-                {hiddenConversationCount > 0 && (
-                  <button type="button" onClick={() => setShowHiddenConversations(value => !value)} aria-pressed={showHiddenConversations}
-                    className="flex items-center gap-2 text-xs text-slate-600 p-2 rounded-lg hover:bg-slate-100">
-                    <Eye size={16} />{showHiddenConversations ? '收起已隐藏会话' : `已隐藏会话 (${hiddenConversationCount})`}
-                  </button>
-                )}
-                {!isAdmin ? playerConversationHidden && !showHiddenConversations ? (
+                <select aria-label="选择玩家发起私信" value="" onChange={event => {
+                  if (event.target.value) openConversation(isAdmin ? event.target.value : undefined);
+                }} className="w-full bg-white border border-slate-200 text-indigo-700 text-sm font-bold rounded-lg px-3 py-3 outline-none focus:border-indigo-500">
+                  <option value="" disabled>选择玩家发起私信</option>
+                  {(isAdmin ? [...new Set(allPlayerNames)].filter(name => name && name !== currentUser?.username) : [adminDisplayName]).map(name => (
+                    <option key={name} value={name}>{name}{!isAdmin ? '（管理员）' : ''}</option>
+                  ))}
+                </select>
+                {!isAdmin ? playerConversationHidden ? (
                   <p className="py-12 text-center text-xs text-slate-500">暂无会话</p>
                 ) : (
                   /* 普通玩家：与管理员私信条形框 */
@@ -1600,16 +1596,16 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                   /* 管理员视角：不同玩家显示独立的条形框列表 */
                   <div className="space-y-2.5">
                     <div className="text-xs font-bold text-slate-500 px-1 mb-2 flex items-center justify-between">
-                      <span>玩家私信列表 ({showHiddenConversations ? adminConversations.length : visibleAdminConversations.length})</span>
+                      <span>玩家私信列表 ({visibleAdminConversations.length})</span>
                     </div>
 
-                    {(showHiddenConversations ? adminConversations : visibleAdminConversations).length === 0 ? (
+                    {visibleAdminConversations.length === 0 ? (
                       <div className="py-12 flex flex-col items-center justify-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 space-y-2">
                         <MessageSquare className="w-8 h-8 opacity-40 text-indigo-500" />
                         <p className="font-bold text-slate-600">暂无玩家私信记录</p>
                       </div>
                     ) : (
-                      (showHiddenConversations ? adminConversations : visibleAdminConversations).map((conv) => {
+                      visibleAdminConversations.map((conv) => {
                         const visibleMsgs = conv.msgs;
                         const lastMsg = visibleMsgs[visibleMsgs.length - 1];
                         return (
@@ -1987,7 +1983,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
              onClick={onLogout}
              className="w-full max-w-[220px] flex items-center justify-center gap-2 text-xs font-black text-red-500 bg-red-50 hover:bg-red-100 py-2.5 px-4 rounded-xl transition-all border border-red-100/80 shadow-2xs hover:shadow-xs active:scale-95"
            >
-             <LogOut size={15} /> 退出登录
+             <LogOut size={15} className="rotate-180" /> 退出登录
            </button>
          </div>
       )}

@@ -1,10 +1,22 @@
-import {StrictMode, Suspense, lazy} from 'react';
+import {StrictMode, Suspense, lazy, useCallback, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import { StartupScreen } from './components/StartupScreen';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
 const App = lazy(() => import('./App.tsx'));
+
+function ApplicationRoot() {
+  const [accountReady, setAccountReady] = useState(false);
+  const [startupFinished, setStartupFinished] = useState(false);
+  const handleAccountReady = useCallback(() => setAccountReady(true), []);
+  return <>
+    <div inert={!startupFinished} style={{ visibility: startupFinished ? 'visible' : 'hidden' }}>
+      <Suspense fallback={null}><App onAccountReady={handleAccountReady} /></Suspense>
+    </div>
+    {!startupFinished && <StartupScreen waitingForAccount={!accountReady} onComplete={() => setStartupFinished(true)} />}
+  </>;
+}
 
 // Cancel browser zoom without swallowing either click or the map's touch events.
 const preventBrowserZoom = (event: Event) => event.preventDefault();
@@ -31,9 +43,7 @@ async function mountApp() {
   createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <Suspense fallback={<StartupScreen waitingForAccount waitingLabel="资源已就绪，正在加载游戏程序…" onComplete={() => {}} />}>
-        <App />
-      </Suspense>
+      <ApplicationRoot />
     </ErrorBoundary>
   </StrictMode>,
 );
