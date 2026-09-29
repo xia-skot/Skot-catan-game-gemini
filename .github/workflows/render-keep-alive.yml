@@ -1,0 +1,38 @@
+name: 网站外部保活
+
+on:
+  schedule:
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: render-keep-alive
+  cancel-in-progress: false
+
+jobs:
+  keep-alive:
+    # Standard hosted runners are free in public repositories. Avoid using
+    # private-repository minutes until the owner chooses a billing arrangement.
+    if: github.event.repository.private == false
+    name: 访问网站健康接口
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      HEALTH_URL: https://catan-game02.onrender.com/api/health
+    steps:
+      - name: 唤醒或保持网站运行
+        shell: bash
+        run: |
+          status="$(curl --silent --show-error --fail \
+            --proto '=https' \
+            --connect-timeout 10 --max-time 90 \
+            --retry 1 --retry-delay 5 --retry-max-time 190 --retry-all-errors \
+            --output /dev/null --write-out '%{http_code}' \
+            "$HEALTH_URL")"
+          if [[ "$status" != "200" ]]; then
+            echo "健康检查失败，HTTP 状态：$status"
+            exit 1
+          fi
+          echo "健康检查成功，HTTP 状态：$status"
