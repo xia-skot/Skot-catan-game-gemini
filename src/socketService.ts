@@ -31,6 +31,7 @@ class SocketService {
   private pendingSettings: { sequence: number; patch: SettingsPatch }[] = [];
   private authoritativeRoom: RoomState | null = null;
   private roomSubscriber?: (state: RoomState) => void;
+  private pendingJoin: string | null = null;
 
   private projectedRoom() {
     return this.pendingSettings.reduce((room, update) => applySettingsPatch(room, update.patch), this.authoritativeRoom!);
@@ -106,6 +107,7 @@ class SocketService {
 
     this.socket.on('disconnect', (reason) => {
       this.pendingSettings = [];
+      this.pendingJoin = null;
       console.log('[Socket] Disconnected. Reason:', reason);
       this.connectionChangeCallbacks.forEach(cb => cb(false));
     });
@@ -158,8 +160,11 @@ class SocketService {
       this.playerId = localStorage.getItem('catan_player_id') || Math.random().toString(36).substring(2, 10);
       localStorage.setItem('catan_player_id', this.playerId);
     }
+    const requestKey = JSON.stringify([roomId, this.playerId, asSpectator]);
+    if (this.pendingJoin === requestKey) return;
+    this.pendingJoin = requestKey;
     console.log('[Socket] joinRoom emitted:', roomId, 'playerId:', this.playerId, 'playerName:', playerName);
-    this.emit('join_room', roomId, this.playerId, playerName, asSpectator);
+    this.emit('join_room', roomId, this.playerId, playerName, asSpectator, localStorage.getItem('catan_auth_token'));
   }
 
   getMyActiveRoom(playerName: string, callback: (room: RoomState | null) => void) {
@@ -211,6 +216,7 @@ class SocketService {
   }
 
   leaveRoom(roomId: string) {
+    this.pendingJoin = null;
     this.emit('leave_room', roomId, this.playerId);
   }
 
@@ -304,6 +310,7 @@ class SocketService {
   onRoomState(callback: (state: RoomState) => void) {
     this.roomSubscriber = callback;
     this.registerCallback('room_state', (state: RoomState) => {
+      this.pendingJoin = null;
       if (!state || state.roomId !== this.authoritativeRoom?.roomId || state.gameState) this.pendingSettings = [];
       if (state?.settingsMutation?.clientId === this.settingsClientId) {
         this.pendingSettings = this.pendingSettings.filter(update => update.sequence > state.settingsMutation!.sequence);

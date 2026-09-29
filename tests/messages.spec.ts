@@ -3,7 +3,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { registerMessageDeletionRoutes } from '../server/messageRoutes';
 
-test('deletion routes reject invalid IDs and unauthorized messages, preserve admin access', async ({ request }, info) => {
+test('private deletion is disabled while invalid IDs, ownership and system admin permissions remain enforced', async ({ request }, info) => {
   test.skip(info.project.name !== 'desktop', 'Server route test is browser independent');
   const app = express();
   app.use(express.json());
@@ -30,12 +30,12 @@ test('deletion routes reject invalid IDs and unauthorized messages, preserve adm
     expect((await request.delete(url + new ObjectId())).status()).toBe(404);
     expect((await request.delete(url + foreign)).status()).toBe(403);
     expect((await request.delete(url + system)).status()).toBe(403);
-    expect((await request.delete(url + owned)).status()).toBe(200);
-    expect((await request.delete(url + foreign, { headers: { 'x-test-role': 'admin' } })).status()).toBe(200);
-    expect((await request.delete(url + 'conversation', { data: { partner: 'someone-else' } })).status()).toBe(200);
-    expect(deleted[2]).toEqual({ type: 'private', $or: [
-      { senderId: 'self' }, { targetUserId: 'self' }, { senderId: 'player' }, { targetUserId: 'player' },
-      { senderId: { $in: [null, ''] }, senderName: 'player' }, { targetUserId: { $in: [null, ''] }, targetUserName: 'player' },
-    ] });
+    expect((await request.delete(url + owned)).status()).toBe(409);
+    expect((await request.delete(url + foreign, { headers: { 'x-test-role': 'admin' } })).status()).toBe(409);
+    expect((await request.delete(url + 'conversation', { data: { partner: 'someone-else' } })).status()).toBe(409);
+    expect((await request.delete(url + 'conversation', { headers: { 'x-test-role': 'admin' }, data: { partner: 'self' } })).status()).toBe(409);
+    expect(deleted).toEqual([]);
+    expect((await request.delete(url + system, { headers: { 'x-test-role': 'admin' } })).status()).toBe(200);
+    expect(deleted).toEqual([{ _id: system }]);
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });

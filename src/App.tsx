@@ -396,33 +396,27 @@ const Port = ({ port, cx, cy, nx, ny }: { port: any, cx: number, cy: number, nx:
 
 
 
+const TokenPulse = () => {
+  const circle = useRef<Konva.Circle>(null);
+  useEffect(() => {
+    const node = circle.current;
+    if (!node) return;
+    const animation = new Konva.Animation(frame => {
+      const pulse = (frame!.time % 1200) / 1200;
+      node.setAttrs({ radius: 18 + pulse * 12, strokeWidth: 4 * (1 - pulse), opacity: 1 - pulse });
+    }, node.getLayer());
+    animation.start();
+    return () => { animation.stop(); };
+  }, []);
+  return <Circle ref={circle} radius={18} stroke="#EF4444" strokeWidth={4} listening={false} perfectDrawEnabled={false} />;
+};
+
 const RobberToken = ({ x, y, isPhaseRobber }: { x: number, y: number, isPhaseRobber: boolean }) => {
   const { image: img } = useGameImage(ROBBER_IMG);
-  const [pulse, setPulse] = useState(0);
-
-  useEffect(() => {
-    if (!isPhaseRobber) return;
-    let animationFrame: number;
-    const animate = () => {
-      setPulse((Date.now() % 1200) / 1200);
-      animationFrame = requestAnimationFrame(animate);
-    };
-    animate();
-    return () => cancelAnimationFrame(animationFrame);
-  }, [isPhaseRobber]);
 
   return (
-    <Group x={x} y={y}>
-      {isPhaseRobber && (
-        <Circle 
-          radius={18 + pulse * 12} 
-          stroke="#EF4444" 
-          strokeWidth={4 * (1 - pulse)} 
-          opacity={1 - pulse} 
-          listening={false} 
-          perfectDrawEnabled={false}
-        />
-      )}
+    <Group x={x} y={y} listening={false}>
+      {isPhaseRobber && <TokenPulse />}
       {img ? (
         <Image 
           image={img} 
@@ -502,31 +496,10 @@ const AnchorToken = () => {
 
 const PirateToken = ({ x, y, isPhaseRobber }: { x: number, y: number, isPhaseRobber: boolean }) => {
   const { image: img } = useGameImage(PIRATE_SHIP_IMG);
-  const [pulse, setPulse] = useState(0);
-
-  useEffect(() => {
-    if (!isPhaseRobber) return;
-    let animationFrame: number;
-    const animate = () => {
-      setPulse((Date.now() % 1200) / 1200);
-      animationFrame = requestAnimationFrame(animate);
-    };
-    animate();
-    return () => cancelAnimationFrame(animationFrame);
-  }, [isPhaseRobber]);
 
   return (
-    <Group x={x} y={y}>
-      {isPhaseRobber && (
-        <Circle 
-          radius={18 + pulse * 12} 
-          stroke="#EF4444" 
-          strokeWidth={4 * (1 - pulse)} 
-          opacity={1 - pulse} 
-          listening={false} 
-          perfectDrawEnabled={false}
-        />
-      )}
+    <Group x={x} y={y} listening={false}>
+      {isPhaseRobber && <TokenPulse />}
       {img ? (
         <Image 
           image={img} 
@@ -1951,9 +1924,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let wasConnected = socketService.isConnected;
     return socketService.onConnectionChange((connected) => {
+      const reconnected = connected && !wasConnected;
+      wasConnected = connected;
       setIsConnected(connected);
-      if (connected && isJoinedLobby && !isAuthLoading && currentUser) {
+      if (reconnected && isJoinedLobby && !isAuthLoading && currentUser) {
         const roomId = roomState?.roomId || inputRoomId;
         if (roomId) {
           console.log('[App] Reconnected, rejoining room:', roomId);
@@ -3700,7 +3676,7 @@ export default function App() {
 
   let mainContent: React.ReactNode = null;
 
-  if (!roomState && !isJoinedLobby) {
+  if (!roomState) {
     mainContent = renderNonGameWrapper(
       <div 
         onTouchStart={lobbySwipe.onTouchStart}
@@ -3753,7 +3729,7 @@ export default function App() {
                       <input 
                         type="text" 
                         value={inputRoomId}
-                        readOnly={isRoomLocked}
+                        readOnly={isRoomLocked || isJoinedLobby}
                         onChange={e => {
                           if (isRoomLocked) return;
                           const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
@@ -3768,9 +3744,13 @@ export default function App() {
                   <button 
                     id="join-room-button"
                     type="button"
+                    disabled={isJoinedLobby}
+                    aria-busy={isJoinedLobby}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      if (isJoinedLobbyRef.current) return;
+                      isJoinedLobbyRef.current = true;
                       const activeRoom = localStorage.getItem('catan_active_room');
                       const enteredCode = inputRoomId.trim();
                       const targetRoom = (isRoomLocked && activeRoom) ? activeRoom : (enteredCode || Math.floor(100000 + Math.random() * 900000).toString());
@@ -3800,13 +3780,13 @@ export default function App() {
                       socketService.connect();
                       socketService.joinRoom(targetRoom, playerName, asSpec);
                     }}
-                    className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-indigo-700 hover:shadow-[0_8px_30px_rgba(79,70,229,0.3)] active:scale-[0.98] transition-all relative overflow-hidden group text-sm shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] cursor-pointer touch-manipulation z-20"
+                    className="join-room-button w-full bg-indigo-600 text-white py-3 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-indigo-700 hover:shadow-[0_8px_30px_rgba(79,70,229,0.3)] active:scale-[0.98] transition-all relative overflow-hidden group text-sm shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] cursor-pointer disabled:cursor-wait touch-manipulation z-20"
                   >
                     <span className="relative z-10 flex items-center justify-center gap-2">
                       <Swords size={16} />
                       进入海域
                     </span>
-                    <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-500 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
+                    <div className="join-room-sheen absolute inset-0 bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-500 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
                   </button>
               </div>
             </motion.div>
@@ -3814,7 +3794,7 @@ export default function App() {
 
           {/* Tab 2: rooms */}
           <div inert={activeLobbyTab !== 'rooms'} aria-hidden={activeLobbyTab !== 'rooms'} className="w-[25%] h-full flex-shrink-0 relative overflow-hidden">
-             <div className="w-full h-full flex flex-col items-center px-6 pt-2 pb-4 sm:p-6">
+             <div className="w-full h-full flex flex-col">
                <GameRoomsTab 
                  currentUser={currentUser} 
                  isRoomLocked={isRoomLocked}
@@ -3933,13 +3913,6 @@ export default function App() {
         </div>
       </div>
     );
-  } else if (!roomState) {
-    mainContent = <div className="app-screen startup-ocean" data-room-connecting>
-      <SailingScene sailing={false} />
-      <div className="startup-progress"><p role="status">正在连接海域<LoadingDots /></p>
-        <button className="startup-retry" onClick={handleReturnToLobby}>返回大厅</button>
-      </div>
-    </div>;
   } else if (!gameStarted) {
     mainContent = renderNonGameWrapper(
       <>
@@ -4679,6 +4652,7 @@ export default function App() {
               className={`border-r border-black/5 flex flex-col bg-white h-full max-h-full min-h-0 shrink-0 relative ${confirmDevCard ? 'z-[100000]' : 'z-50'}`}
             >
               <RotatedScroll
+                data-game-resource-scroll
                 shouldApplyPortraitRotation={shouldApplyPortraitRotation}
                 className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain touch-pan-y no-scrollbar overflow-x-hidden ${isMobile ? 'p-1 gap-1' : 'p-4 lg:p-5 gap-6'}`}
               >
@@ -5004,7 +4978,7 @@ export default function App() {
               }
             }}
           >
-            <Layer ref={boardLayerRef}>
+            <Layer ref={boardLayerRef} name="board-terrain">
               {hexCoords.filter(hex => !hex.isOuterSea).map((hex) => (
                 <HexCell 
                   key={hex.id} 
@@ -5343,6 +5317,9 @@ export default function App() {
                 );
               })}
 
+            </Layer>
+            {/* Animated markers must not redraw every terrain tile while scrolling. */}
+            <Layer name="board-markers">
               {/* Robber/Pirate Icons - Rendered last to be on top */}
               {hexCoords.map(hex => {
                 const isRobber = gameState.robberHexId === hex.id;

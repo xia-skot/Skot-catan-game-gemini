@@ -18,11 +18,8 @@ export function SailingScene({ sailing = true, loop = false, onComplete }: { sai
     observer.observe(container.current!);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    if (!sailing || loop) return;
-    const timer = setTimeout(() => callback.current?.(), 2600);
-    return () => clearTimeout(timer);
-  }, [sailing, loop]);
+  const completed = useRef(false);
+  useEffect(() => { completed.current = false; }, [sailing]);
 
   const scene = useMemo(() => {
     const { width: w, height: h } = size;
@@ -46,7 +43,12 @@ export function SailingScene({ sailing = true, loop = false, onComplete }: { sai
 
   return <div ref={container} className="startup-sea" aria-hidden="true">
     <style>{`@keyframes sailBoatAnim { ${scene.frames} }`}</style>
-    {sailing && <div className="startup-boat" data-sailing-boat style={{ transformOrigin: '0 0', animation: `sailBoatAnim 2.5s linear ${loop ? 'infinite' : 'both'}` }}>
+    {sailing && <div className="startup-boat" data-sailing-boat
+      onAnimationIteration={() => {
+        // Readiness must not restart the voyage or start a second completion timer.
+        if (!loop && !completed.current) { completed.current = true; callback.current?.(); }
+      }}
+      style={{ transformOrigin: '0 0', animation: 'sailBoatAnim 2.5s linear infinite' }}>
       <SmartImage src={SAILING_BOAT_IMG} alt="帆船" style={{ width: scene.boatSize, height: scene.boatSize, transform: 'translate(-50%, -95%)' }} className="object-contain" />
     </div>}
     <svg className="startup-sea" viewBox={`0 0 ${size.width} ${size.height}`}>

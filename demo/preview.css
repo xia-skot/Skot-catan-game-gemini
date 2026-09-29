@@ -10,4 +10,5 @@ button:hover, a:hover { background: #f0f2f5; }
 button[aria-pressed="true"] { background: #e9e6ff; color: #5033ce; }
 main { padding: 24px; width: max-content; min-width: 100%; display: flex; justify-content: center; }
 iframe { flex: none; border: 1px solid #c7ced6; background: #f8fafc; box-shadow: 0 8px 30px #25304216; }
+select { height: 36px; border: 1px solid #d5dbe0; border-radius: 6px; background: white; color: inherit; padding: 0 8px; font: inherit; }
 @media (max-width: 600px) { header { gap: 10px; padding: 10px; } main { padding: 12px; } }

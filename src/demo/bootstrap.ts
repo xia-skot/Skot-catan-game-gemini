@@ -1,7 +1,12 @@
 export async function prepareDemo() {
-  const response = await fetch('/api/demo/session');
+  const role = new URLSearchParams(location.search).get('demoRole') === 'admin' ? 'admin' : 'user';
+  const response = await fetch(`/api/demo/session?role=${role}`);
   if (!response.ok) throw new Error('Demo server is unavailable');
   const { token, user } = await response.json();
+  const previousId = localStorage.getItem('catan_player_id');
+  if (previousId && previousId !== user.id) {
+    for (const key of ['catan_active_room', 'catan_game_active', 'catan_has_created_room', 'catan_is_spectator']) localStorage.removeItem(key);
+  }
   localStorage.setItem('catan_auth_token', token);
   localStorage.setItem('catan_player_id', user.id);
   localStorage.setItem('catan_player_name', user.username);

@@ -1,15 +1,78 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3, ArrowLeft, Mail, Volume2, Bug, Trash2, Play, Database, MessageSquare, Send, Bell, Info, RotateCw, ChevronDown } from 'lucide-react';
+import { X, User, Lock, Loader2, Trophy, Clock, Swords, LogOut, Settings, Edit3, ArrowLeft, Mail, Volume2, Bug, Trash2, Play, Database, MessageSquare, Send, Bell, Info, RotateCw, ChevronDown, ChevronRight, MoreHorizontal, Eraser, Eye } from 'lucide-react';
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
+import { Leaderboard } from './Leaderboard';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
-import { markMessagesRead, readMessageIds } from '../messageReadState';
+import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds } from '../messageReadState';
+import { MESSAGE_DISPLAY_EVENT, conversationIsHidden, messageDisplayAccount, messageDisplayStorageKey, readMessageDisplay, updateMessageDisplay, visibleConversationMessages } from '../localMessageDisplay';
 
 function UnreadBadge({ count }: { count: number }) {
   return count > 0 ? <span aria-label={`${count}条未读消息`} data-unread-count={count} className="absolute -top-1 -right-2 min-w-5 h-5 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-xs">{count > 99 ? '99+' : count}</span> : null;
+}
+
+function ConversationRow({ name, children, onOpen, onHide }: { name: string; children: React.ReactNode; onOpen: () => void; onHide: () => void }) {
+  const [revealed, setRevealed] = useState(false);
+  const [offset, setOffset] = useState<number | null>(null);
+  const gesture = useRef<{ x: number; y: number; start: number; horizontal: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-slate-200/80 bg-red-50" data-no-swipe data-conversation={name}
+      onKeyDown={event => {
+        if (event.key === 'ArrowLeft' || event.key === 'Delete') { event.preventDefault(); setRevealed(true); }
+        if (event.key === 'Escape' || event.key === 'ArrowRight') { event.preventDefault(); setRevealed(false); }
+      }}>
+      <button type="button" onClick={onHide} tabIndex={revealed ? 0 : -1} aria-hidden={!revealed}
+        aria-label={`删除与${name}的会话（仅本机隐藏）`} title="仅在本机隐藏会话，保留聊天记录"
+        className="absolute inset-y-0 right-0 w-20 bg-red-600 text-white text-xs font-bold flex flex-col items-center justify-center gap-1">
+        <Trash2 size={16} />删除
+      </button>
+      <div className={`relative flex items-center bg-white ${offset === null ? 'transition-transform' : ''}`} style={{ transform: `translateX(${offset ?? (revealed ? -80 : 0)}px)`, touchAction: 'pan-y' }}
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          suppressClick.current = false;
+          gesture.current = { x: event.clientX, y: event.clientY, start: revealed ? -80 : 0, horizontal: false };
+        }}
+        onPointerMove={event => {
+          const start = gesture.current;
+          if (!start) return;
+          const dx = event.clientX - start.x, dy = event.clientY - start.y;
+          if (!start.horizontal) {
+            if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { gesture.current = null; return; }
+            if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return;
+            start.horizontal = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }
+          suppressClick.current = true;
+          setOffset(Math.max(-80, Math.min(0, start.start + dx)));
+        }}
+        onPointerUp={event => {
+          const start = gesture.current;
+          if (start?.horizontal) {
+            setRevealed(start.start + event.clientX - start.x < -32);
+            event.preventDefault();
+          }
+          gesture.current = null;
+          setOffset(null);
+        }}
+        onPointerCancel={() => { gesture.current = null; setOffset(null); }}
+        onClickCapture={event => {
+          if (suppressClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; }
+        }}>
+        <button type="button" onClick={() => { if (revealed) setRevealed(false); else onOpen(); }}
+          aria-label={`打开与${name}的私信`} className="p-3.5 min-w-0 flex-1 text-left group hover:bg-slate-50 focus-visible:outline-indigo-500">
+          {children}
+        </button>
+        <button type="button" onClick={() => setRevealed(value => !value)} aria-label={`${name}的会话操作`} aria-expanded={revealed}
+          title="会话操作" className="p-3 mr-1 shrink-0 text-slate-500 hover:bg-slate-100 rounded-lg focus-visible:outline-indigo-500">
+          <MoreHorizontal size={18} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface UserProfileModalProps {
@@ -28,7 +91,7 @@ interface UserProfileModalProps {
 }
 
 export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogout, inline = false, fullScreen = false, onPlayerClick, onRestoreGame, activeView: propActiveView, onActiveViewChange, disableHistory = false, isActive = true }: UserProfileModalProps) {
-  const [internalActiveView, setInternalActiveView] = useState<'menu' | 'edit' | 'history' | 'sound' | 'admin' | 'debug' | 'feedback' | 'messages' | 'about'>('menu');
+  const [internalActiveView, setInternalActiveView] = useState<'menu' | 'edit' | 'history' | 'leaderboard' | 'sound' | 'admin' | 'debug' | 'feedback' | 'messages' | 'private_chat' | 'about'>('menu');
   const activeView = propActiveView !== undefined ? propActiveView : internalActiveView;
   const setActiveView = (v: any) => {
     setInternalActiveView(v);
@@ -142,13 +205,60 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   }, [inPrivateChatDetail, isActive]);
 
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [messages, setMessages] = useState<any[]>([]);
+  const account = messageDisplayAccount(currentUser || {});
+  const currentAccountRef = useRef(account);
+  currentAccountRef.current = account;
+  const [messageSnapshot, setMessageSnapshot] = useState<{ account: string; messages: any[] }>({ account, messages: [] });
+  const messages = React.useMemo(() => messageSnapshot.account === account ? messageSnapshot.messages : [], [messageSnapshot, account]);
+  const setMessages = useCallback((update: React.SetStateAction<any[]>) => {
+    setMessageSnapshot(previous => {
+      const before = previous.account === account ? previous.messages : [];
+      return { account, messages: typeof update === 'function' ? update(before) : update };
+    });
+  }, [account]);
+  const [displaySnapshot, setDisplaySnapshot] = useState(() => ({ account, state: readMessageDisplay(account) }));
+  const displayState = displaySnapshot.account === account ? displaySnapshot.state : readMessageDisplay(account);
+  const [showHiddenConversations, setShowHiddenConversations] = useState(false);
+  const [displayNotice, setDisplayNotice] = useState('');
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
 
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const refresh = () => setDisplaySnapshot({ account, state: readMessageDisplay(account) });
+    const onStorage = (event: StorageEvent) => { if (!event.key || event.key === messageDisplayStorageKey(account)) refresh(); };
+    refresh();
+    setInPrivateChatDetail(false);
+    setSelectedChatPlayer(null);
+    setReplyText('');
+    setShowHiddenConversations(false);
+    setDisplayNotice('');
+    window.addEventListener(MESSAGE_DISPLAY_EVENT, refresh);
+    window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener(MESSAGE_DISPLAY_EVENT, refresh); window.removeEventListener('storage', onStorage); };
+  }, [account]);
+
+  useEffect(() => {
+    const input = replyInputRef.current;
+    if (!input) return;
+    const resize = () => {
+      input.style.height = '0px';
+      input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+    };
+    resize();
+    // Observe width changes without observing the textarea's changing height.
+    let width = input.parentElement?.clientWidth;
+    const widthObserver = new ResizeObserver(entries => {
+      const next = entries[0]?.contentRect.width;
+      if (next !== width) { width = next; resize(); }
+    });
+    if (input.parentElement) widthObserver.observe(input.parentElement);
+    return () => widthObserver.disconnect();
+  }, [replyText, inPrivateChatDetail, activeView, isActive]);
 
   const systemMsgs = React.useMemo(() => {
     return messages.filter(m => m.type !== 'private' && !m.targetUserId);
@@ -265,7 +375,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
   const chatPartnerName = isAdmin ? (selectedChatPlayer || '玩家') : adminDisplayName;
 
-  const activeChatMsgs = React.useMemo(() => {
+  const activeRawChatMsgs = React.useMemo(() => {
     if (!isAdmin) {
       return playerPrivateMsgs;
     }
@@ -273,6 +383,31 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     const conv = adminConversations.find(c => c.username === selectedChatPlayer);
     return conv ? conv.msgs : [];
   }, [isAdmin, playerPrivateMsgs, selectedChatPlayer, adminConversations]);
+
+  const conversationKey = (name?: string | null) => isAdmin ? `player:${name || ''}` : 'admin';
+  const activeConversationKey = conversationKey(selectedChatPlayer);
+  const activeChatMsgs = React.useMemo(() => visibleConversationMessages(displayState[activeConversationKey], activeRawChatMsgs), [displayState, activeConversationKey, activeRawChatMsgs]);
+  const visibleAdminConversations = adminConversations.filter(conv => !conversationIsHidden(displayState[conversationKey(conv.username)], conv.msgs));
+  const playerConversationHidden = conversationIsHidden(displayState.admin, playerPrivateMsgs);
+  const hiddenConversationCount = isAdmin ? adminConversations.length - visibleAdminConversations.length : Number(playerConversationHidden);
+  const visiblePlayerMsgs = visibleConversationMessages(displayState.admin, playerPrivateMsgs);
+
+  const changeConversationDisplay = (key: string, action: 'hide' | 'clear' | 'reveal', msgs: any[] = []) => {
+    const result = updateMessageDisplay(account, key, action, msgs);
+    setDisplaySnapshot({ account, state: result.state });
+    setDisplayNotice(result.persisted ? '' : '本地保存失败，此次显示设置仅在当前页面有效。');
+  };
+
+  // Once a new ID arrives, persist the resurfaced state even across later reloads.
+  useEffect(() => {
+    const conversations = isAdmin ? adminConversations.map(conv => ({ key: `player:${conv.username}`, msgs: conv.msgs })) : [{ key: 'admin', msgs: playerPrivateMsgs }];
+    for (const conv of conversations) {
+      if (displayState[conv.key]?.hiddenMessageIds && !conversationIsHidden(displayState[conv.key], conv.msgs)) {
+        const result = updateMessageDisplay(account, conv.key, 'reveal');
+        setDisplaySnapshot({ account, state: result.state });
+      }
+    }
+  }, [account, displayState, isAdmin, adminConversations, playerPrivateMsgs]);
 
   const formatChatTime = (rawTime: any): string => {
     let d: Date;
@@ -313,69 +448,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     });
   }, [activeChatMsgs]);
 
-  const [deletingConv, setDeletingConv] = useState(false);
-
-  const handleDeleteConversation = async (partnerName?: string) => {
-    const targetName = partnerName || selectedChatPlayer || adminDisplayName;
-    if (!window.confirm(`确定要删除与“${targetName}”的对话框及所有聊天记录吗？`)) return;
-
-    setDeletingConv(true);
-    try {
-      const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch('/api/messages/conversation', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ partner: targetName })
-      });
-      const data = await safeFetchJson(res);
-      if (res.ok && data?.success) {
-        setMessages(prev => prev.filter(m => {
-          if (m.type !== 'private' && !m.targetUserId) return true;
-          if (isAdmin) {
-            const isMatch = m.senderName === targetName || m.senderId === targetName || m.targetUserName === targetName || m.targetUserId === targetName;
-            return !isMatch;
-          } else {
-            return false;
-          }
-        }));
-        if (selectedChatPlayer === targetName) {
-          setSelectedChatPlayer(null);
-        }
-        setInPrivateChatDetail(false);
-      } else {
-        alert(data?.error || '删除对话框失败');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('删除对话框失败');
-    } finally {
-      setDeletingConv(false);
-    }
-  };
-
-  const handleDeleteSingleMessage = async (msgId: string) => {
-    if (!window.confirm('确定要删除这条私信记录吗？')) return;
-    try {
-      const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch(`/api/messages/${msgId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await safeFetchJson(res);
-      if (res.ok && data?.success) {
-        setMessages(prev => prev.filter(m => m.id !== msgId));
-      } else {
-        alert(data?.error || '删除失败');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('删除失败');
-    }
-  };
-
   const systemUnreadCount = systemMsgs.filter(m => !m.read).length;
   const privateUnreadCount = isAdmin 
     ? adminConversations.reduce((acc, c) => acc + c.msgs.filter(m => !m.read && m.senderName === c.username).length, 0)
@@ -392,7 +464,36 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     const idSet = new Set(ids);
     markMessagesRead(currentUser?.username || 'user', ids);
     setMessages(prev => prev.map(m => idSet.has(m.id) ? { ...m, read: true } : m));
-  }, [currentUser?.username]);
+  }, [currentUser?.username, setMessages]);
+
+  useEffect(() => {
+    const syncRead = () => {
+      const ids = readMessageIds(currentUser?.username || 'user');
+      setMessages(previous => previous.map(message => ids.has(message.id) ? { ...message, read: true } : message));
+    };
+    window.addEventListener(MESSAGE_READ_EVENT, syncRead);
+    window.addEventListener('storage', syncRead);
+    return () => { window.removeEventListener(MESSAGE_READ_EVENT, syncRead); window.removeEventListener('storage', syncRead); };
+  }, [currentUser?.username, setMessages]);
+
+  const handleHideConversation = (partnerName?: string) => {
+    const msgs = isAdmin ? adminConversations.find(conv => conv.username === partnerName)?.msgs || [] : playerPrivateMsgs;
+    markMessagesAsRead(msgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id));
+    changeConversationDisplay(conversationKey(partnerName), 'hide', msgs);
+    setShowHiddenConversations(false);
+  };
+
+  const handleClearScreen = () => {
+    markMessagesAsRead(activeRawChatMsgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id));
+    changeConversationDisplay(activeConversationKey, 'clear', activeRawChatMsgs);
+  };
+
+  const openConversation = (partnerName?: string) => {
+    changeConversationDisplay(conversationKey(partnerName), 'reveal');
+    setSelectedChatPlayer(partnerName || null);
+    setReplyText('');
+    setInPrivateChatDetail(true);
+  };
 
   const markMessageAsRead = (id: string) => {
     markMessagesAsRead([id]);
@@ -412,6 +513,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       });
       if (!res.ok) return;
       const data = await safeFetchJson(res);
+      if (currentAccountRef.current !== account) return;
       if (data?.messages) {
         const readMsgs = readMessageIds(currentUser?.username || 'user');
         setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(m.id) })));
@@ -425,9 +527,9 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     } catch (err) {
       console.error('Fetch messages error:', err);
     } finally {
-      if (!silent) setMessagesLoading(false);
+      if (!silent && currentAccountRef.current === account) setMessagesLoading(false);
     }
-  }, [currentUser?.username]);
+  }, [account, currentUser?.username, setMessages]);
 
   // 定时自动同步消息 (每3秒)，保证私信及时显示
   useEffect(() => {
@@ -769,17 +871,20 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
             </div>
 
             <div className="flex items-center gap-1 shrink-0"><button
-              onClick={() => handleDeleteConversation(isAdmin ? (selectedChatPlayer || undefined) : adminDisplayName)}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"
-              title="删除对话框"
+              onClick={handleClearScreen}
+              disabled={activeChatMsgs.length === 0}
+              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0 disabled:opacity-40 flex items-center gap-1 text-xs"
+              title="清屏（仅本机隐藏现有消息，保留聊天记录）"
+              aria-label="清屏（仅本机）"
             >
-              <Trash2 size={16} />
+              <Eraser size={16} />清屏
             </button>
             <button onClick={requestAppBack} title="返回" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 p-3.5 bg-slate-50 overflow-y-auto space-y-3 no-scrollbar">
+          <div className="flex-1 min-h-0 p-3.5 bg-slate-50 overflow-y-auto space-y-3 no-scrollbar">
+            {displayNotice && <p role="status" className="text-xs text-amber-700">{displayNotice}</p>}
             {processedChatMsgs.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs font-medium space-y-2 py-12">
                 <div className="w-12 h-12 rounded-full bg-indigo-50/50 flex items-center justify-center text-indigo-400 mb-1">
@@ -815,20 +920,10 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         {(isMe ? (currentUser?.username || '我') : (chatPartnerName || 'Ta')).slice(0, 1).toUpperCase()}
                       </div>
 
-                      {/* Bubble and Delete Button on Hover */}
+                      {/* Message bubble */}
                       <div className="flex items-center gap-1.5 min-w-0">
-                        {isMe && (
-                          <button
-                            onClick={() => handleDeleteSingleMessage(msg.id)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-300 hover:text-red-500 rounded shrink-0"
-                            title="删除此条消息"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-
                         <div 
-                          className={`p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap break-words shadow-2xs font-medium ${
+                          className={`min-w-0 p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] shadow-2xs font-medium ${
                             isMe 
                               ? 'bg-indigo-600 text-white rounded-tr-xs shadow-indigo-600/10' 
                               : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs'
@@ -841,16 +936,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                           )}
                           {msg.content}
                         </div>
-
-                        {!isMe && (
-                          <button
-                            onClick={() => handleDeleteSingleMessage(msg.id)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-300 hover:text-red-500 rounded shrink-0"
-                            title="删除此条消息"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
                       </div>
                     </div>
                   </React.Fragment>
@@ -864,17 +949,12 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           <div className="p-3 bg-white border-t border-slate-200 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
             <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 focus-within:border-indigo-500 focus-within:bg-white rounded-2xl p-2 transition-all">
               <textarea 
+                ref={replyInputRef}
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendPrivateMessage();
-                  }
-                }}
-                placeholder=""
-                rows={2}
-                className="flex-1 bg-transparent border-0 text-xs text-slate-800 font-medium outline-none resize-none p-1 placeholder:text-slate-400"
+                aria-label="私信内容"
+                rows={1}
+                className="flex-1 min-w-0 min-h-7 max-h-36 overflow-y-auto bg-transparent border-0 text-sm leading-5 text-slate-800 font-medium outline-none resize-none p-1 placeholder:text-slate-400"
               />
               <button
                 disabled={!replyText.trim() || sendingReply}
@@ -891,7 +971,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       )}
 
       {/* Header Profile Section */}
-      <div className={`bg-white px-4 sm:px-5 ${headerPaddingClass} shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm`}>
+      {activeView !== 'leaderboard' && <div className={`bg-white px-4 sm:px-5 ${headerPaddingClass} shadow-2xs z-10 shrink-0 relative flex justify-between items-center w-full rounded-none border-b border-slate-200/80 shadow-sm`}>
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center border-2 border-indigo-200/50 relative overflow-hidden shrink-0">
             <User size={22} />
@@ -923,7 +1003,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               </button>
             )}
         </div>
-      </div>
+      </div>}
 
       <div 
         className="flex-1 min-h-0 overflow-y-auto no-scrollbar relative p-4 space-y-4 max-w-2xl w-full mx-auto touch-pan-y"
@@ -1461,15 +1541,18 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                 exit={{ opacity: 0, y: -5 }}
                 className="space-y-3 font-sans py-2"
               >
-                {!isAdmin ? (
+                {displayNotice && <p role="status" className="text-xs text-amber-700">{displayNotice}</p>}
+                {hiddenConversationCount > 0 && (
+                  <button type="button" onClick={() => setShowHiddenConversations(value => !value)} aria-pressed={showHiddenConversations}
+                    className="flex items-center gap-2 text-xs text-slate-600 p-2 rounded-lg hover:bg-slate-100">
+                    <Eye size={16} />{showHiddenConversations ? '收起已隐藏会话' : `已隐藏会话 (${hiddenConversationCount})`}
+                  </button>
+                )}
+                {!isAdmin ? playerConversationHidden && !showHiddenConversations ? (
+                  <p className="py-12 text-center text-xs text-slate-500">暂无会话</p>
+                ) : (
                   /* 普通玩家：与管理员私信条形框 */
-                  <div 
-                    onClick={() => {
-                      setSelectedChatPlayer(null);
-                      setInPrivateChatDetail(true);
-                    }}
-                    className="p-3.5 bg-white rounded-2xl border border-slate-200/80 hover:border-indigo-400 hover:shadow-md transition-all flex items-center justify-between cursor-pointer group active:scale-[0.99]"
-                  >
+                  <ConversationRow name={adminDisplayName} onOpen={() => openConversation()} onHide={() => handleHideConversation()}>
                     <div className="flex items-center gap-3.5 min-w-0 flex-1">
                       <div className="relative shrink-0">
                         <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shadow-xs">
@@ -1480,57 +1563,42 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">
                               {adminDisplayName}
                             </span>
-                            <span className="bg-amber-500/10 text-amber-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-500/20">
+                            <span className="shrink-0 bg-amber-500/10 text-amber-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-500/20">
                               官方
                             </span>
                           </div>
                           <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                            {playerPrivateMsgs.length > 0 ? playerPrivateMsgs[playerPrivateMsgs.length - 1].date : '在线'}
+                            {visiblePlayerMsgs.length > 0 ? formatChatTime(visiblePlayerMsgs[visiblePlayerMsgs.length - 1].createdAt) : ''}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 truncate mt-1 font-medium">
-                          {playerPrivateMsgs.length > 0 ? playerPrivateMsgs[playerPrivateMsgs.length - 1].content : '暂无消息'}
+                          {visiblePlayerMsgs.length > 0 ? visiblePlayerMsgs[visiblePlayerMsgs.length - 1].content : '暂无消息'}
                         </p>
                       </div>
                     </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteConversation(adminDisplayName);
-                      }}
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all shrink-0 ml-2"
-                      title="删除对话框及聊天记录"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  </ConversationRow>
                 ) : (
                   /* 管理员视角：不同玩家显示独立的条形框列表 */
                   <div className="space-y-2.5">
                     <div className="text-xs font-bold text-slate-500 px-1 mb-2 flex items-center justify-between">
-                      <span>玩家私信列表 ({adminConversations.length})</span>
+                      <span>玩家私信列表 ({showHiddenConversations ? adminConversations.length : visibleAdminConversations.length})</span>
                     </div>
 
-                    {adminConversations.length === 0 ? (
+                    {(showHiddenConversations ? adminConversations : visibleAdminConversations).length === 0 ? (
                       <div className="py-12 flex flex-col items-center justify-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 space-y-2">
                         <MessageSquare className="w-8 h-8 opacity-40 text-indigo-500" />
                         <p className="font-bold text-slate-600">暂无玩家私信记录</p>
                       </div>
                     ) : (
-                      adminConversations.map((conv) => (
-                        <div 
-                          key={conv.username}
-                          onClick={() => {
-                            setSelectedChatPlayer(conv.username);
-                            setInPrivateChatDetail(true);
-                          }}
-                          className="p-3.5 bg-white rounded-2xl border border-slate-200/80 hover:border-indigo-400 hover:shadow-md transition-all flex items-center justify-between cursor-pointer group active:scale-[0.99]"
-                        >
+                      (showHiddenConversations ? adminConversations : visibleAdminConversations).map((conv) => {
+                        const visibleMsgs = visibleConversationMessages(displayState[conversationKey(conv.username)], conv.msgs);
+                        const lastMsg = visibleMsgs[visibleMsgs.length - 1];
+                        return (
+                          <ConversationRow key={conv.username} name={conv.username} onOpen={() => openConversation(conv.username)} onHide={() => handleHideConversation(conv.username)}>
                           <div className="flex items-center gap-3.5 min-w-0 flex-1">
                             <div className="relative shrink-0">
                               <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
@@ -1540,31 +1608,21 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">
+                                <span className="truncate text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">
                                   {conv.username}
                                 </span>
                                 <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                                  {conv.lastMsg?.date || ''}
+                                  {lastMsg ? formatChatTime(lastMsg.createdAt) : ''}
                                 </span>
                               </div>
                               <p className="text-xs text-slate-500 truncate mt-1 font-medium">
-                                {conv.lastMsg?.content || '暂无消息'}
+                                {lastMsg?.content || '暂无消息'}
                               </p>
                             </div>
                           </div>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteConversation(conv.username);
-                            }}
-                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all shrink-0 ml-2"
-                            title="删除该玩家的对话框"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ))
+                          </ConversationRow>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -1740,6 +1798,8 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           </AnimatePresence>
         )}
 
+        {activeView === 'leaderboard' && <Leaderboard onBack={requestAppBack} />}
+
         {activeView === 'menu' && (
           <AnimatePresence mode="wait">
             <motion.div
@@ -1749,6 +1809,16 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               exit={{ opacity: 0, y: -10 }}
               className="space-y-3"
             >
+              <button
+                onClick={() => setActiveView('leaderboard')}
+                className="w-full bg-white py-3 px-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Trophy size={18} className="text-amber-500" />
+                  <h3 className="font-bold text-slate-700 text-sm">排行榜</h3>
+                </div>
+                <ChevronRight size={18} className="text-slate-300 group-hover:text-indigo-400 transition-colors" />
+              </button>
               <button 
                 onClick={() => setActiveView('history')} 
                 className="w-full bg-white py-3 px-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-colors"

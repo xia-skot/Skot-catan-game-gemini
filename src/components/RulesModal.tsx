@@ -651,7 +651,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, inline 
                       </div>
                     </div>
                     <p className="text-[10px] text-amber-600 font-medium pl-11">
-                      ⚠️ 建造规则：连接路和船必须修建村庄，否则无法修船。
+                      建造规则：道路与船只必须通过自己的村庄或城市衔接，登上新岛后也一样。
                     </p>
                   </div>
 

@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+.join-room-button[aria-busy="true"] .join-room-sheen {
+  animation: join-room-sheen 1s ease-in-out infinite;
+}
+@keyframes join-room-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);

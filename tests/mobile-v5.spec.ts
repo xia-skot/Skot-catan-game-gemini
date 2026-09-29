@@ -33,7 +33,8 @@ test('joining waits for a populated room and reduced capacity hides only empty s
     service.socket.onevent = (packet: any) => setTimeout(() => original(packet), 500);
   });
   await page.getByRole('button', { name: '进入海域', exact: true }).click();
-  await expect(page.locator('[data-room-connecting]')).toBeVisible();
+  await expect(page.getByRole('button', { name: '进入海域', exact: true })).toBeDisabled();
+  await expect(page.locator('[data-room-connecting]')).toHaveCount(0);
   await expect(page.getByText('在线匹配', { exact: true })).toHaveCount(0);
   await expect(page.locator('[data-ai-slot="3"]')).toBeVisible();
   await page.locator('[data-ai-slot="1"] button').click();

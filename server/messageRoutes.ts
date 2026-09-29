@@ -3,35 +3,8 @@ import { ObjectId } from 'mongodb';
 
 export function registerMessageDeletionRoutes(app: Express, authenticate: RequestHandler, getCollection: () => any) {
   // Register the literal path first: "conversation" is not a message ObjectId.
-  app.delete('/api/messages/conversation', authenticate, async (req: any, res) => {
-    try {
-      const collection = getCollection();
-      if (!collection) return res.status(503).json({ error: '数据库未连接' });
-      const userId = String(req.user.userId || '');
-      const username = req.user.username;
-      const partner = typeof req.body.partner === 'string' ? req.body.partner.trim() : '';
-      const identity = req.user.role === 'admin' ? partner : userId;
-      if (!identity) return res.status(400).json({ error: '缺少对话用户' });
-      const names = req.user.role === 'admin' ? [partner] : [userId, username].filter(Boolean);
-      const ownership = req.user.role === 'admin'
-        ? ['senderId', 'senderName', 'targetUserId', 'targetUserName'].map(field => ({ [field]: { $in: names } }))
-        : [
-            { senderId: userId }, { targetUserId: userId },
-            ...(username ? [
-              { senderId: username }, { targetUserId: username },
-              { senderId: { $in: [null, ''] }, senderName: username },
-              { targetUserId: { $in: [null, ''] }, targetUserName: username },
-            ] : []),
-          ];
-      await collection.deleteMany({
-        type: 'private',
-        $or: ownership,
-      });
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Delete conversation failed', error);
-      res.status(500).json({ error: '删除对话框失败' });
-    }
+  app.delete('/api/messages/conversation', authenticate, (_req, res) => {
+    res.status(409).json({ error: '聊天记录不再删除，请更新页面后使用清屏或隐藏会话' });
   });
 
   app.delete('/api/messages/:id', authenticate, async (req: any, res) => {
@@ -51,6 +24,7 @@ export function registerMessageDeletionRoutes(app: Express, authenticate: Reques
         return id ? id === userId || (!ObjectId.isValid(id) && id === username) : !!username && message[nameField] === username;
       });
       if (req.user.role !== 'admin' && (!isPrivate || !belongsToUser)) return res.status(403).json({ error: '无权删除此消息' });
+      if (isPrivate) return res.status(409).json({ error: '聊天记录不再删除，请使用清屏或隐藏会话' });
       await collection.deleteOne({ _id: id });
       res.json({ success: true });
     } catch (error) {

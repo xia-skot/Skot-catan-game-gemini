@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail } from 'lucide-react';
+import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail, ArrowUp, ArrowDown, Trophy } from 'lucide-react';
 import { UserProfileModal } from './UserProfileModal';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
+import { DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, sortAdminPlayers, type PlayerSortField, type SortDirection } from '../../shared/leaderboard';
 
 export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' }) {
   const [data, setData] = useState<any>(null);
@@ -13,6 +14,14 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingUsers, setEditingUsers] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [playerSort, setPlayerSort] = useState<PlayerSortField>('createdAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [leaderboardTopCount, setLeaderboardTopCount] = useState(String(DEFAULT_LEADERBOARD_TOP_COUNT));
+  const [leaderboardSettingsReady, setLeaderboardSettingsReady] = useState(false);
+  const [leaderboardSettingsSaving, setLeaderboardSettingsSaving] = useState(false);
+  const [leaderboardSettingsMessage, setLeaderboardSettingsMessage] = useState('');
+  const [leaderboardSettingsError, setLeaderboardSettingsError] = useState('');
+  const sortedPlayers = React.useMemo(() => sortAdminPlayers<any>(data?.allUsers || data?.latestUsers || [], playerSort, sortDirection), [data, playerSort, sortDirection]);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
@@ -358,6 +367,52 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     }
   };
 
+  const fetchLeaderboardSettings = async () => {
+    setLeaderboardSettingsReady(false);
+    setLeaderboardSettingsError('');
+    try {
+      const token = localStorage.getItem('catan_auth_token');
+      const response = await fetch('/api/admin/leaderboard/settings', { headers: { Authorization: `Bearer ${token}` } });
+      const result = await safeFetchJson(response);
+      if (!response.ok || !isLeaderboardTopCount(result?.topCount)) throw new Error(result?.error || '排行榜设置加载失败');
+      setLeaderboardTopCount(String(result.topCount));
+      setLeaderboardSettingsReady(true);
+    } catch (failure) {
+      setLeaderboardSettingsError(failure instanceof Error ? failure.message : '排行榜设置加载失败');
+    }
+  };
+
+  useEffect(() => {
+    if (activeSection === 'system') fetchLeaderboardSettings();
+  }, [activeSection]);
+
+  const saveLeaderboardSettings = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const count = Number(leaderboardTopCount);
+    setLeaderboardSettingsMessage('');
+    setLeaderboardSettingsError('');
+    if (!isLeaderboardTopCount(count)) {
+      setLeaderboardSettingsError('显示人数须为 1 至 100 的整数');
+      return;
+    }
+    setLeaderboardSettingsSaving(true);
+    try {
+      const token = localStorage.getItem('catan_auth_token');
+      const response = await fetch('/api/admin/leaderboard/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ topCount: count }),
+      });
+      const result = await safeFetchJson(response);
+      if (!response.ok || !result?.success || !isLeaderboardTopCount(result?.topCount)) throw new Error(result?.error || '排行榜设置保存失败');
+      setLeaderboardTopCount(String(result.topCount));
+      setLeaderboardSettingsMessage('已保存');
+    } catch (failure) {
+      setLeaderboardSettingsError(failure instanceof Error ? failure.message : '排行榜设置保存失败');
+    } finally {
+      setLeaderboardSettingsSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchStats();
     fetchFeedbacks();
@@ -441,6 +496,23 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Sub-View 1: 系统设置
   const renderSystemContent = () => (
     <div className="space-y-4 font-sans">
+      <form onSubmit={saveLeaderboardSettings} className="space-y-3 border-b border-slate-200 pb-4">
+        <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700"><Trophy size={14} className="text-amber-600" />月度排行榜</h4>
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="leaderboard-top-count" className="text-xs text-slate-600">显示人数</label>
+          <input id="leaderboard-top-count" type="number" min="1" max="100" step="1" required
+            value={leaderboardTopCount} disabled={!leaderboardSettingsReady || leaderboardSettingsSaving}
+            onChange={event => { setLeaderboardTopCount(event.target.value); setLeaderboardSettingsMessage(''); }}
+            className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm disabled:opacity-50" />
+          <button type="submit" disabled={!leaderboardSettingsReady || leaderboardSettingsSaving}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-50">
+            {leaderboardSettingsSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}保存
+          </button>
+          {!leaderboardSettingsReady && leaderboardSettingsError && <button type="button" onClick={fetchLeaderboardSettings} title="重试加载排行榜设置" aria-label="重试加载排行榜设置" className="p-2 text-slate-500"><RotateCw size={16} /></button>}
+        </div>
+        {leaderboardSettingsMessage && <p role="status" className="text-xs text-emerald-700">{leaderboardSettingsMessage}</p>}
+        {leaderboardSettingsError && <p role="alert" className="text-xs text-red-600">{leaderboardSettingsError}</p>}
+      </form>
       {/* 大厅显示房间上限 */}
       <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
         <h4 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
@@ -587,16 +659,27 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Sub-View 2: 玩家名单
   const renderUsersContent = () => (
     <div className="space-y-3 font-sans">
-      <div className="flex items-center justify-between px-1 pb-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-1">
         <span className="text-xs font-bold text-slate-500">共计 {(data?.allUsers || data?.latestUsers)?.length || 0} 位玩家</span>
+        <div className="flex items-center gap-2">
+          <label className="sr-only" htmlFor="admin-player-sort">玩家排序字段</label>
+          <select id="admin-player-sort" value={playerSort} onChange={event => setPlayerSort(event.target.value as PlayerSortField)} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">
+            <option value="createdAt">注册时间</option><option value="winRate">胜率</option><option value="totalGames">游戏场次</option><option value="recent3DayGames">近3天活跃度</option>
+          </select>
+          <button type="button" onClick={() => setSortDirection(value => value === 'asc' ? 'desc' : 'asc')}
+            title={sortDirection === 'asc' ? '升序，切换为降序' : '降序，切换为升序'} aria-label={sortDirection === 'asc' ? '升序，切换为降序' : '降序，切换为升序'}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600">
+            {sortDirection === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col space-y-2 pr-1">
-        {(data?.allUsers || data?.latestUsers)?.map((u: any) => {
+        {sortedPlayers.map((u: any) => {
           const isEditing = editingUsers[u._id] !== undefined;
           return (
-            <div key={u._id} className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 flex items-center justify-between group transition-all">
-              <div className="flex items-center gap-3 min-w-0">
+            <div key={u._id} className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 flex flex-wrap gap-y-2 items-center justify-between group transition-all" data-admin-player={u._id}>
+              <div className="flex flex-1 items-center gap-3 min-w-0">
                 <div 
                   onClick={() => handleOpenUserProfile(u.username)}
                   className="w-9 h-9 rounded-xl bg-indigo-100 hover:bg-indigo-200 flex items-center justify-center shrink-0 border border-indigo-200/60 cursor-pointer transition-colors"
@@ -616,7 +699,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                       />
                     ) : (
                       <span 
-                        className="cursor-pointer hover:text-indigo-600 transition-colors"
+                        className="truncate cursor-pointer hover:text-indigo-600 transition-colors"
                         onClick={() => handleOpenUserProfile(u.username)}
                         title="点击查看玩家战绩"
                       >
@@ -625,10 +708,12 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                     )}
                     {u.role === 'admin' && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.2 rounded-full font-bold">管理员</span>}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2.5 font-medium">
+                  <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-medium">
                     <span>场次: <span className="font-bold text-slate-700">{u.totalGames || 0}</span></span>
                     <span>胜率: <span className="font-bold text-emerald-600">{u.winRate || 0}%</span></span>
+                    <span title="近三天完成对局数：过去72小时内可计分的已完成游戏">近3天对局: <span className="font-bold text-slate-700">{Number.isFinite(u.recent3DayGames) ? `${u.recent3DayGames} 场` : '未提供'}</span></span>
                   </div>
+                  <div className="mt-1 text-[10px] text-slate-400">注册: {u.createdAt && Number.isFinite(new Date(u.createdAt).getTime()) ? new Date(u.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '未知'}</div>
                 </div>
               </div>
               

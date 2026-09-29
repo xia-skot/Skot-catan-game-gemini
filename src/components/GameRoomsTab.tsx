@@ -100,17 +100,21 @@ export const GameRoomsTab: React.FC<GameRoomsTabProps> = ({
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="px-4 py-3 flex items-center justify-between shrink-0">
+      <div data-room-list-header className="bg-white px-4 sm:px-5 py-3 flex items-center justify-between shrink-0 border-b border-slate-200/80 shadow-sm z-10">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-serif font-black italic text-slate-800 flex items-center gap-2">
-            <Swords size={24} className="text-indigo-600" />
+          <div className="w-11 h-11 rounded-full bg-indigo-100 border-2 border-indigo-200 flex items-center justify-center shrink-0">
+            <Swords size={24} className="text-indigo-500" />
+          </div>
+          <h2 className="text-base font-black text-slate-800 leading-tight">
             游戏大厅
           </h2>
         </div>
         <div className="flex items-center gap-2">
           <button 
             onClick={fetchRooms}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shadow-sm"
+            title="刷新大厅"
+            aria-label="刷新大厅"
+            className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>

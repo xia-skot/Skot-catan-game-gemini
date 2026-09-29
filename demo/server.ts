@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 
 const user = { id: '111111111111111111111111', username: '体验玩家', email: 'demo@example.test', role: 'user', isGuest: false };
+const admin = { id: '555555555555555555555555', username: '演示管理员', email: 'admin@example.test', role: 'admin', isGuest: false };
 function matches(document: any, filter: any): boolean {
   return Object.entries(filter).every(([key, value]: [string, any]) => {
     if (key === '$or') return value.some((part: any) => matches(document, part));
@@ -18,10 +19,17 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
       { _id: new ObjectId('333333333333333333333333'), type: 'system', title: '海域公告', content: '祝你在岛屿上有一段愉快的旅程。', createdAt: Date.now() }];
   };
   seed();
-  const session = () => ({ user, token: jwt.sign({ userId: user.id, username: user.username, role: user.role, isGuest: false }, secret, { expiresIn: '1d' }) });
-  app.get('/api/demo/session', (_req, res) => res.json(session()));
+  const session = (account = user) => ({ user: account, token: jwt.sign({ userId: account.id, username: account.username, role: account.role, isGuest: false }, secret, { expiresIn: '1d' }) });
+  app.get('/api/demo/session', (req, res) => res.json(session(req.query.role === 'admin' ? admin : user)));
   app.post('/api/demo/reset', (_req, res) => { seed(); resetRooms(); res.json({ success: true }); });
-  app.get('/api/me', (_req, res) => res.json({ user }));
+  app.get('/api/me', (req, res) => {
+    let account = user;
+    try {
+      const identity = jwt.verify(req.headers.authorization?.split(' ')[1] || '', secret) as any;
+      if (identity.userId === admin.id && identity.role === 'admin') account = admin;
+    } catch { /* Default isolated demo account. */ }
+    res.json({ user: account });
+  });
   app.post('/api/login', (_req, res) => res.json(session()));
   app.get('/api/about', (_req, res) => res.json({ content: '卡坦岛 · 本地演示', updatedAt: new Date().toISOString() }));
   app.get('/api/user/games', (_req, res) => res.json({ games: [], stats: { totalGames: 0, wins: 0, winRate: 0 } }));
@@ -29,7 +37,7 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   app.get('/api/feedback/prompt', (_req, res) => res.json({ prompt: '演示反馈' }));
   app.post('/api/feedback', (_req, res) => res.json({ success: true }));
   app.use('/api', (req, res, next) => {
-    const allowed = ['/messages', '/sound-settings', '/health', '/db-status'];
+    const allowed = ['/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats'];
     if (allowed.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'))) return next();
     res.status(403).json({ error: '此操作不在本地演示范围内' });
   });
