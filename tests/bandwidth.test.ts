@@ -57,8 +57,8 @@ test('collector matches IDs, aggregates workspace services, requires first-month
     if (u.pathname === `/v1/services/${site.id}`) return Response.json(service);
     if (u.pathname === '/v1/services') return Response.json([{ service }, { service: { id: `other${i}`, ownerId: `owner${i}` } }]);
     assert.equal(u.pathname, '/v1/metrics/bandwidth');
-    return Response.json([{ unit: 'GB', labels: [{ field: 'service', value: u.searchParams.get('resource') }],
-      values: [{ timestamp: new Date(now - hour).toISOString(), value: 0.5 }] }]);
+    return Response.json([{ unit: 'mb', labels: [{ field: 'service', value: u.searchParams.get('resource') }],
+      values: [{ timestamp: new Date(now - hour).toISOString(), value: 500 }] }]);
   }) as typeof fetch;
   const result = await collectBandwidth(env, config, now, fetcher);
   assert.equal(result!.rows[0].usedGB, 1);
@@ -75,6 +75,44 @@ test('collector matches IDs, aggregates workspace services, requires first-month
   await collectBandwidth(env, config, now + 20 * 60000, fetcher);
   assert.equal((await readSnapshot(env, now))!.rows[0].usedGB, 3.5);
   await assert.rejects(calibrateBandwidth(env, RENDER_SITES[0].id, 0, now));
+});
+test('supports spelled-out and per-sample units without guessing unknown units', () => {
+  const values = [{ timestamp: new Date(now - hour).toISOString(), value: 1e9 }];
+  for (const unit of ['B', 'byte', 'bytes', 'Bytes', ' BYTES ']) {
+    const points = {};
+    mergeSamples(points, [{ unit, labels: [], values }], 'x', 0, now);
+    assert.deepEqual(Object.values(points), [1]);
+  }
+  const points = {};
+  mergeSamples(points, [{ labels: [], values: [{ ...values[0], unit: 'bytes' }] }], 'x', 0, now);
+  assert.deepEqual(Object.values(points), [1]);
+  for (const unit of ['b', 'GB/s', '', 'unknown', undefined, 'toString']) {
+    assert.throws(() => mergeSamples({}, [{ unit, labels: [], values }], 'x', 0, now), /无法识别带宽单位/);
+  }
+  assert.throws(() => mergeSamples({}, [{ unit: 'GB', labels: [], values: [{ ...values[0], unit: 'B' }] }], 'x', 0, now), /不一致/);
+  assert.throws(() => mergeSamples({}, [{ unit: 'GB', labels: null, values }], 'x', 0, now), /labels=null/);
+});
+test('Render lowercase mb converts to GB and deduplicates across equivalent unit spellings', () => {
+  const points = {};
+  const timestamp = new Date(now - hour).toISOString();
+  for (const unit of ['mb', ' mb ', 'MB']) {
+    mergeSamples(points, [{ unit, labels: [], values: [{ timestamp, value: 1500 }] }], 'x', 0, now);
+    assert.deepEqual(Object.values(points), [1.5]);
+  }
+  mergeSamples(points, [{ unit: 'MB', labels: [], values: [{ timestamp, value: 500, unit: 'mb' }] }], 'x', 0, now);
+  assert.deepEqual(Object.values(points), [0.5]);
+  for (const unit of ['Mb', 'mbps', 'mb/s', 'Mbit']) {
+    assert.throws(() => mergeSamples({}, [{ unit, labels: [], values: [{ timestamp, value: 1500 }] }], 'x', 0, now), /无法识别带宽单位/);
+  }
+});
+test('metrics failures do not falsely mark a responding game unhealthy', async () => {
+  const env = environment();
+  const result = await collectBandwidth(env, config, now, (async (url: any) => {
+    if (String(url).endsWith('/api/health')) return Response.json({ status: 'ok' });
+    return new Response(null, { status: 403 });
+  }) as typeof fetch);
+  assert.ok(result!.rows.every(row => row.healthy && row.error?.includes('403')));
+  assert.equal(chooseBandwidthTarget(config, result, now), null);
 });
 test('admin metrics require authentication and public routing does not silently bypass missing usage', async () => {
   const env = environment();

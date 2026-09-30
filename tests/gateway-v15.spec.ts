@@ -23,8 +23,8 @@ test('admin can configure and reload all three calendar destinations', async ({ 
   await page.getByRole('heading', { name: '管理中心', exact: true }).click();
   await page.getByRole('heading', { name: '系统设置', exact: true }).click();
   const form = page.getByRole('form', { name: '入口跳转设置' });
-  await expect(form.getByRole('checkbox')).toBeEnabled();
-  await form.getByRole('checkbox').check();
+  await expect(form.getByRole('combobox', { name: '切换方式' })).toBeEnabled();
+  await form.getByRole('combobox', { name: '切换方式' }).selectOption('calendar');
   await form.getByLabel('上旬（1—10 日）').fill('https://one.onrender.com');
   await form.getByLabel('中旬（11—20 日）').fill('https://two.onrender.com');
   await form.getByLabel('下旬（21 日—月底）').fill('https://three.onrender.com');

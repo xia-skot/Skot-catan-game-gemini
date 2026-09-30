@@ -1,12 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applySettingsPatch } from '../shared/roomSetup';
+import { decideBotTrade } from '../src/botStrategy';
 import { BOT_LEVELS, BOT_TURN_LIMIT_MS } from '../shared/botDifficulty';
 import { acceptBotTrade, botLevel, chooseBotBankTrade, chooseBotBlockade, chooseBotDevCard, chooseBotDiscard, chooseBotResources, chooseSetupVillage, emptyResources, planBotBuilds, proposeBotTrade } from '../src/botStrategy';
 import { DevCardType, HexType, ResourceType, type GameState, type Player, type TradeOffer } from '../src/types';
 const player = (id = 0): Player => ({ id, name: `AI ${id}`, color: '#222', isBot: true, botDifficulty: 'expert', resources: emptyResources(), settlements: 0, cities: 0, roads: 0, ships: 0, victoryPoints: 0, devCards: [], devCardsBoughtThisTurn: [], playedDevCards: [], knightsPlayed: 0, longestRoadLength: 0, vpCardsCount: 0, islandBonusPoints: 0, discoveredIslandIds: [] });
 const state = (): GameState => ({ players: [player(), player(1)], board: [], ports: [], settlements: [], roads: [], ships: [], bankResources: { lumber: 24, brick: 24, wool: 24, grain: 24, ore: 24 }, bankDevCards: [DevCardType.Knight], mapType: 'archipelago', phase: 'main', hasRolled: true, currentPlayerIndex: 0, robberHexId: 'desert', pirateHexId: null, tradeOffers: [], longestRoadPlayerId: null, largestArmyPlayerId: null } as GameState);
 const goal = { type: 'city' as const, id: '0,0', hexIds: [], score: 20, cost: { ore: 3, grain: 2 } };
+
+test('bot offers give an unanswered human ten seconds even when another bot accepts', () => {
+  const players = [player(0), player(1), { ...player(2), isBot: false }];
+  players[0].resources.lumber = 1;
+  players[1].resources.ore = 1;
+  players[2].resources.ore = 1;
+  const offer: TradeOffer = { id: 'trade', initiatorId: 0, targetPlayerId: null, createdAt: 1000,
+    status: 'pending', offer: { ...emptyResources(), lumber: 1 }, request: { ...emptyResources(), ore: 1 }, acceptedBy: [1], rejectedBy: [] };
+  assert.deepEqual(decideBotTrade(players, offer, 10999), { kind: 'wait' });
+  assert.deepEqual(decideBotTrade(players, offer, 11000), { kind: 'finalize', partnerId: 1 });
+  assert.deepEqual(decideBotTrade(players, { ...offer, acceptedBy: [1, 2] }, 2000), { kind: 'finalize', partnerId: 2 });
+  assert.deepEqual(decideBotTrade(players, { ...offer, rejectedBy: [2] }, 2000), { kind: 'finalize', partnerId: 1 });
+  assert.deepEqual(decideBotTrade(players, { ...offer, acceptedBy: [], rejectedBy: [1, 2] }, 2000), { kind: 'cancel' });
+  assert.deepEqual(decideBotTrade(players, { ...offer, acceptedBy: [] }, 11000), { kind: 'cancel' });
+  assert.deepEqual(decideBotTrade(players, { ...offer, targetPlayerId: 2 }, 2000), { kind: 'wait' });
+  assert.deepEqual(decideBotTrade(players, { ...offer, targetPlayerId: 2, rejectedBy: [2] }, 2000), { kind: 'cancel' });
+  players[0].resources.lumber = 0;
+  assert.deepEqual(decideBotTrade(players, offer, 2000), { kind: 'cancel' });
+});
 
 test('difficulty patches are per-seat, normalized, and do not enable or displace seats', () => {
   const room = { hostId: 'human', players: [{ id: 'human', name: 'Human' }], settings: { playerCount: 4, mapType: 'standard', botConfig: [false, true, false, true] } };

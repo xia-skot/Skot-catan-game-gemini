@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bell, Edit3, Loader2, Plus, Send, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bell, BrushCleaning, Edit3, Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { useBackHandler } from '../navigation';
 
 interface Announcement {
@@ -13,11 +13,12 @@ interface Props {
   isAdmin: boolean;
   isActive: boolean;
   onRead: (id: string) => void;
+  onReadAll: () => void;
   onDelete: (event: React.MouseEvent, id: string) => void;
   onPublish: (draft: { id?: string; title: string; content: string; revision?: number }) => Promise<void>;
 }
 
-export function SystemAnnouncements({ messages, loading, isAdmin, isActive, onRead, onDelete, onPublish }: Props) {
+export function SystemAnnouncements({ messages, loading, isAdmin, isActive, onRead, onReadAll, onDelete, onPublish }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ id?: string; title: string; content: string; revision?: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,8 +55,15 @@ export function SystemAnnouncements({ messages, loading, isAdmin, isActive, onRe
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200">
         <h3 className="text-sm font-bold flex items-center gap-2"><Bell size={18} className="text-indigo-500" />系统公告与通知
           <span className="text-xs font-normal text-slate-400">{messages.length} 条</span></h3>
-        {isAdmin && <button type="button" onClick={() => edit()} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg">
-          <Plus size={16} />发布系统公告</button>}
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onReadAll} title="一键已读" aria-label="一键已读"
+            disabled={loading || !messages.some(message => !message.read)}
+            className="w-10 h-10 shrink-0 inline-flex items-center justify-center rounded-lg text-indigo-600 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:text-slate-300 disabled:hover:bg-transparent">
+            <BrushCleaning size={20} strokeWidth={1.8} />
+          </button>
+          {isAdmin && <button type="button" onClick={() => edit()} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg">
+            <Plus size={16} />发布系统公告</button>}
+        </div>
       </div>
       {loading ? <div className="py-12 flex justify-center"><Loader2 size={22} className="animate-spin text-slate-400" /></div>
         : messages.length === 0 ? <p className="py-12 text-center text-sm text-slate-400">暂无系统公告或系统通知</p>

@@ -514,7 +514,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   };
 
   const markAllMessagesAsRead = () => {
-    const unreadIds = messages.filter(m => !m.read).map(m => m.id);
+    const unreadIds = systemMsgs.filter(m => !m.read).map(m => m.id);
     markMessagesAsRead(unreadIds);
   };
 
@@ -1363,7 +1363,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                   return (
                                     <tr key={idx} className={`${isWinner ? 'bg-yellow-50/30' : ''}`}>
                                       <td className="py-2 px-2 text-center font-black text-slate-400">
-                                        {resultRankPoints(sortedPlayers, p).rank}
+                                        {resultRankPoints(sortedPlayers, p, g).rank}
                                       </td>
                                       <td className="py-2 px-2 font-bold text-slate-700 whitespace-nowrap">
                                         {p.name} {isWinner && '👑'}
@@ -1375,7 +1375,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                       <td className="py-2 px-2 text-center">{p.breakdown?.largestArmy ? 2 : 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.vpCards || 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.islandBonus || 0}</td>
-                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{resultRankPoints(sortedPlayers, p).points}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{resultRankPoints(sortedPlayers, p, g).points}</td>
                                     </tr>
                                   );
                                 })}
@@ -1394,7 +1394,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         
         {activeView === 'messages' && (
           <SystemAnnouncements messages={systemMsgs} loading={messagesLoading} isAdmin={isAdmin} isActive={isActive}
-            onRead={markMessageAsRead} onDelete={handleDeleteMessage} onPublish={publishAnnouncement} />
+            onRead={markMessageAsRead} onReadAll={markAllMessagesAsRead} onDelete={handleDeleteMessage} onPublish={publishAnnouncement} />
         )}
 
         {/* Dedicated QQ-Style Private Chat View */}

@@ -1,4 +1,4 @@
-import { BOT_LEVELS, normalizeBotDifficulty } from '../shared/botDifficulty';
+import { BOT_LEVELS, BOT_TRADE_WAIT_MS, normalizeBotDifficulty } from '../shared/botDifficulty';
 import { COSTS, HEX_RESOURCES } from './constants';
 import { getHexesForEdge, getHexesForVertex } from './useCatanGame';
 import { DevCardType, HexType, ResourceType, type GameState, type Player, type TradeOffer } from './types';
@@ -11,6 +11,24 @@ export type BotBuild = { type: 'settlement' | 'city' | 'road' | 'ship' | 'devCar
 export type BotLegalMoves = { villages: Vertex[]; cities: Vertex[]; roads: string[]; ships: string[]; edges: string[] };
 export const botLevel = (p: Player) => p.sessionId ? 'expert' : normalizeBotDifficulty(p.botDifficulty);
 export const canPay = (p: Player, cost: Cost) => resources.every(r => p.resources[r] >= (cost[r] || 0));
+
+export function decideBotTrade(players: readonly Player[], offer: TradeOffer, now = Date.now()):
+  { kind: 'wait' | 'cancel' } | { kind: 'finalize'; partnerId: number } {
+  const initiator = players.find(player => player.id === offer.initiatorId);
+  const recipients = players.filter(player => player.id !== offer.initiatorId &&
+    (offer.targetPlayerId == null || player.id === offer.targetPlayerId));
+  if (!initiator || !canPay(initiator, offer.offer) || recipients.every(player => offer.rejectedBy.includes(player.id))) return { kind: 'cancel' };
+  const accepted = recipients.filter(player => offer.acceptedBy.includes(player.id) &&
+    !offer.rejectedBy.includes(player.id) && canPay(player, offer.request));
+  const human = accepted.find(player => !player.isBot);
+  if (human) return { kind: 'finalize', partnerId: human.id };
+  const expired = now - (offer.createdAt ?? 0) >= BOT_TRADE_WAIT_MS;
+  const awaitingHuman = recipients.some(player => !player.isBot &&
+    !offer.acceptedBy.includes(player.id) && !offer.rejectedBy.includes(player.id));
+  // An instant AI acceptance must not close the offer before a human can respond.
+  if (accepted.length && (!awaitingHuman || expired)) return { kind: 'finalize', partnerId: accepted[0].id };
+  return { kind: expired ? 'cancel' : 'wait' };
+}
 const dots = (number: number | null) => number && number !== 7 ? Math.max(0, 6 - Math.abs(7 - number)) : 0;
 export const publicScore = (s: GameState, p: Player) => s.settlements.filter(v => v.playerId === p.id).reduce((n, v) => n + (v.isCity ? 2 : 1), 0) +
   (p.islandBonusPoints || 0) + (s.longestRoadPlayerId === p.id ? 2 : 0) + (s.largestArmyPlayerId === p.id ? 2 : 0);

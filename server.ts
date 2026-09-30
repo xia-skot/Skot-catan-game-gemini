@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import { randomInt } from 'node:crypto';
 import { registerMessageDeletionRoutes } from './server/messageRoutes';
 import { registerAnnouncementEditingRoutes } from './server/announcementRoutes';
 import { registerGatewayRoutes } from './server/gatewayRoutes';
@@ -19,7 +20,7 @@ import { normalizeBotDifficulty } from './shared/botDifficulty';
 import { computeLeaderboardUserStats } from './server/leaderboard';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from './server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from './server/leaderboardDemo';
-import { beginLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from './server/leaderboardRecording';
+import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from './server/leaderboardRecording';
 const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
@@ -174,7 +175,7 @@ async function startServer() {
   if (demoLeaderboard) app.get('/api/admin/stats', authMiddleware, adminMiddleware, (_req, res) => res.json(demoLeaderboard.stats()));
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ status: 'ok', version: 'v15', scoringVersion: LEADERBOARD_SCORING_VERSION });
+    res.json({ status: 'ok', version: 'v17', scoringVersion: LEADERBOARD_SCORING_VERSION });
   });
 
   app.get('/api/db-status', (req, res) => {
@@ -182,13 +183,13 @@ async function startServer() {
   });
 
   // ========== EMAIL TRANSPORTER (BREVO API) ==========
-  const brevoApiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS;
-  const fromEmail = process.env.SMTP_FROM || 'xiaskot1224@gmail.com';
+  const brevoApiKey = process.env.BREVO_API_KEY?.trim();
+  const fromEmail = process.env.SMTP_FROM?.trim() || 'xiaskot1224@gmail.com';
   
   if (brevoApiKey) {
     console.log('[Server] Initialized Brevo API Transporter');
   } else {
-    console.warn('[Server] Missing API credentials! Email sending will be disabled (fallback to 123456).');
+    console.warn('[Server] BREVO_API_KEY is missing; verification emails are unavailable.');
   }
 
   // ========== AUTH ROUTES ==========
@@ -212,7 +213,9 @@ async function startServer() {
         if (existing) return res.status(400).json({ error: '该邮箱已被注册' });
       }
 
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      if (!brevoApiKey) return res.status(503).json({ error: '验证码邮件暂时不可用，请联系管理员' });
+
+      const code = randomInt(100000, 1000000).toString();
 
       await verificationCodesCollection.updateOne(
         { email },
@@ -220,14 +223,10 @@ async function startServer() {
         { upsert: true }
       );
 
-      if (!brevoApiKey) {
-        console.log('[Server] No API configured, using fallback code 123456');
-        return res.json({ message: '测试环境：发件服务未完全配置，请暂时使用随意六位验证码' });
-      }
-
       console.log(`[Server] Making API req to Brevo for ${email}`);
       const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
+        signal: AbortSignal.timeout(15000),
         headers: {
           'accept': 'application/json',
           'api-key': brevoApiKey,
@@ -246,7 +245,7 @@ async function startServer() {
 
       if (!brevoResponse.ok) {
         const errText = await brevoResponse.text();
-        console.error('[Server] Brevo API Error:', brevoResponse.status, errText);
+        console.error('[Server] Brevo API Error:', { status: brevoResponse.status, response: errText.slice(0, 1000), sender: fromEmail });
         throw new Error(`Brevo API Error: ${brevoResponse.status}`);
       }
 
@@ -1544,6 +1543,7 @@ async function startServer() {
       const isSpectatorSocket = room.spectators?.some((s: any) => s.socketId === socket.id || s.id === socket.id);
       if (isSpectatorSocket) return;
       const previousState = room.gameState;
+      observeLeaderboardGame(room, gameState);
       // Commit the in-memory transition before awaiting persistence, so two winner updates cannot insert twice.
       room.gameState = gameState;
       socket.broadcast.to(roomId).emit('game_state_updated', gameState);

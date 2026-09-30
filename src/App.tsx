@@ -177,7 +177,8 @@ import { audioService } from './audioService';
 import { preloadAllAssets } from './assetPreloader';
 import { SailingTransition, SailingScene, LoadingDots } from './components/SailingScene';
 import { getSetupSlots, getRoomController } from '../shared/roomSetup';
-import { BOT_LEVELS, BOT_TURN_LIMIT_MS, BOT_TRADE_WAIT_MS, normalizeBotDifficulty } from '../shared/botDifficulty';
+import { BOT_LEVELS, BOT_TURN_LIMIT_MS, normalizeBotDifficulty } from '../shared/botDifficulty';
+import { decideBotTrade } from './botStrategy';
 import { acceptBotTrade, botLevel, canPay, chooseBotBankTrade, chooseBotBlockade, chooseBotDevCard, chooseBotDiscard, chooseBotGoal, chooseBotMonopoly, chooseBotResources, chooseSetupVillage, planBotBuilds, proposeBotTrade, publicScore, resources as botResources } from './botStrategy';
 import { AssetGate } from './components/AssetGate';
 import { SmartImage } from './components/SmartImage';
@@ -3055,6 +3056,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
         gameState.phase !== 'main' || !gameState.hasRolled || isDiceRolling) return;
     const timer = setInterval(() => {
       if (controllerRef.current === socketService.playerId && socketService.isConnected &&
+          !gameState.tradeOffers?.some(offer => offer.initiatorId === gameState.players[gameState.currentPlayerIndex].id && offer.status === 'pending') &&
           Date.now() - botTurnStartRef.current >= BOT_TURN_LIMIT_MS) nextTurn();
     }, 500);
     return () => clearInterval(timer);
@@ -3136,15 +3138,15 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
         return;
       }
       if (state.phase !== 'main') return;
-      if (state.hasRolled && Date.now() - botTurnStartRef.current >= BOT_TURN_LIMIT_MS) { nextTurn(); return; }
       const pending = state.tradeOffers?.find(offer => offer.initiatorId === player.id && offer.status === 'pending');
       if (pending) {
-        const partner = pending.acceptedBy.map(id => state.players[id]).find(other => other && canPay(other, pending.request));
-        if (!canPay(player, pending.offer) || Date.now() - (pending.createdAt || 0) >= BOT_TRADE_WAIT_MS) cancelTrade(pending.id);
-        else if (partner) { socketService.sendFinalizeTrade(roomState.roomId, pending.id, partner.id); wake(); }
+        const decision = decideBotTrade(state.players, pending);
+        if (decision.kind === 'cancel') cancelTrade(pending.id);
+        else if (decision.kind === 'finalize') { socketService.sendFinalizeTrade(roomState.roomId, pending.id, decision.partnerId); wake(); }
         else wake();
         return;
       }
+      if (state.hasRolled && Date.now() - botTurnStartRef.current >= BOT_TURN_LIMIT_MS) { nextTurn(); return; }
       const card = chooseBotDevCard(state, player, plans);
       if (card) { playDevCard(card); return; }
       if (!state.hasRolled) { rollDice(); return; }

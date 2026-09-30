@@ -58,15 +58,17 @@ test('back remains usable when the browser cannot leave an installed app', async
   await expect(page.getByText('历史战绩', { exact: true })).toBeVisible();
 });
 
-test('system mark-all survives polling and reload without reading private messages', async ({ page }) => {
+test('system mark-all survives polling and reload without reading private messages', async ({ page }, testInfo) => {
   await page.goto('/');
   const nav = page.locator('.lobby-tab-bar');
   await nav.getByRole('button', { name: '我的', exact: true }).click();
   await page.getByText('系统消息', { exact: true }).click();
   await expect(nav).toBeHidden();
+  await expect(page.getByRole('button', { name: '一键已读' })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('system-messages.png'), fullPage: true });
   await page.getByRole('button', { name: '一键已读' }).click();
   await page.waitForTimeout(3600);
-  await expect(page.getByRole('button', { name: '一键已读' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '一键已读' })).toBeDisabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('catan_read_msgs_体验玩家') || '[]'))).toEqual(['333333333333333333333333']);
   await page.evaluate(() => history.back());
   await expect(nav).toBeVisible();
@@ -75,7 +77,7 @@ test('system mark-all survives polling and reload without reading private messag
   await nav.getByRole('button', { name: '我的', exact: true }).click();
   await page.getByText('系统消息', { exact: true }).click();
   await expect(page.getByText('海域公告', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '一键已读' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '一键已读' })).toBeDisabled();
 });
 
 test('root back warns once, expiry rearms it, second back leaves the app', async ({ page }) => {

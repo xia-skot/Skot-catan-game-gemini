@@ -4,7 +4,8 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import type { AddressInfo } from 'node:net';
 import { buildMonthlyLeaderboard, computeLeaderboardUserStats, eligibleLeaderboardGames } from '../server/leaderboard';
-import { beginLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from '../server/leaderboardRecording';
+import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from '../server/leaderboardRecording';
+import { resultRankPoints } from '../shared/gameResult';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from '../server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from '../server/leaderboardDemo';
 import { monthBounds, shanghaiMonth, shiftMonth, sortAdminPlayers } from '../shared/leaderboard';
@@ -25,11 +26,11 @@ test('legacy score breakdowns and history award the same monthly points', () => 
       score: id === 0 ? 10 : total,
       breakdown: { settlements: id === 0 ? total : 0, cities: 0, longestRoad: false, largestArmy: false, vpCards: 0, islandBonus: 0 } })) }));
   const row = board(records).entries[0];
-  assert.deepEqual([row.points, row.gameCount, row.wins], [7, 3, 3]);
+  assert.deepEqual([row.points, row.gameCount, row.wins], [3, 3, 3]);
   const response = buildMonthlyLeaderboard(records, users, '2026-09', 20, NOW, '0');
-  assert.deepEqual(response.myGames?.map(game => game.points), [2, 3, 2]);
+  assert.deepEqual(response.myGames?.map(game => game.points), [1, 1, 1]);
   assert.equal(response.myGames?.reduce((sum, game) => sum + game.points, 0), row.points);
-  assert.equal(response.scoringVersion, 'rank-points-v15');
+  assert.equal(response.scoringVersion, 'rank-points-v17');
 });
 
 test('a corrected complete breakdown governs ranking while malformed details cannot inflate a score', () => {
@@ -48,13 +49,13 @@ test('N - strictly higher participants awards tied high positions, and monthly r
   assert.equal(result.source, 'stored-client-results');
 });
 
-test('AI and guests count toward N and ranking but do not get leaderboard entries; spectators never count', () => {
+test('AI count toward rank but not the human cap; guests have no entries and spectators never count', () => {
   const record = game();
   record.players[0].isBot = true;
   const accounts = users.map(user => user._id === '1' ? { ...user, isGuest: true } : user);
   record.players.push({ id: 99, name: 'Observer', isBot: false, score: 99, isSpectator: true } as any);
   const result = board([record], accounts);
-  assert.deepEqual(result.entries.map(row => [row.userId, row.points]), [['2', 3], ['3', 1]]);
+  assert.deepEqual(result.entries.map(row => [row.userId, row.points]), [['2', 2], ['3', 0]]);
 });
 
 test('new stable IDs survive renamed users, exclude unverified users, and retain takeover humans', () => {
@@ -155,11 +156,11 @@ function roomAndState() {
 
 test('noncontiguous original AI slot 3 compacts to game seat 1; runtime bot/userId input cannot alter identity', async () => {
   const { room, state } = roomAndState();
-  assert.equal(beginLeaderboardGame(room, state), true);
+  assert.equal(beginLeaderboardGame(room, state, 0), true);
   const writes: any[] = [];
   const collection = { updateOne: async (...args: any[]) => { writes.push(args); } };
   const result = game({ players: [{ ...state.players[0], score: 10 }, { ...state.players[1], score: 7 }] });
-  await persistLeaderboardResult(room, result, collection);
+  await persistLeaderboardResult(room, result, collection, 0);
   const stored = writes[0][1].$setOnInsert;
   assert.equal(stored.identityVersion, 1);
   assert.match(stored.gameId, /^[a-f0-9-]{36}$/);
@@ -167,7 +168,7 @@ test('noncontiguous original AI slot 3 compacts to game seat 1; runtime bot/user
   assert.equal(stored.players[0].isOriginalBot, false);
   assert.equal(stored.players[1].isOriginalBot, true);
   assert.equal(stored.players[1].userId, null);
-  assert.deepEqual(board([stored]).entries.map(row => [row.userId, row.points]), [['0', 2]]);
+  assert.deepEqual(board([stored]).entries.map(row => [row.userId, row.points]), [['0', 1]]);
   assert.equal(writes[0][2].upsert, true);
 });
 
@@ -236,6 +237,55 @@ test('Mongo setting persists in its isolated document across store instances; se
   await mongoLeaderboardStore(() => collections).readRecords();
   assert.equal(projections[1].email, undefined);
   assert.equal(projections[1].password, undefined);
+  assert.equal(projections[0].durationMs, 1);
+});
+
+test('mixed rooms use human cap, bots receive zero, and solo humans must actually win', () => {
+  const players = [
+    { id: 0, score: 10, isBot: true }, { id: 1, score: 9, isBot: false },
+    { id: 2, score: 8, isBot: false }, { id: 3, score: 7, isBot: true },
+  ];
+  assert.deepEqual(players.map(player => resultRankPoints(players, player, { winnerId: 0 }).points), [0, 1, 0, 0]);
+  const solo = players.filter(player => player.id !== 2);
+  assert.equal(resultRankPoints(solo, solo[1], { winnerId: 0 }).points, 0);
+  solo[1].score = 10;
+  assert.equal(resultRankPoints(solo, solo[1], { winnerId: 0 }).points, 0, 'a tied non-winner is not a solo win');
+  assert.equal(resultRankPoints(solo, solo[1], { winnerId: 1 }).points, 1);
+});
+
+test('server accumulates multiple autoplay periods, freezes at finish, and overrides forged timing', async () => {
+  const { room, state } = roomAndState();
+  state.players[0].isBot = false;
+  beginLeaderboardGame(room, state, 1000);
+  const update = (time: number, isBot: boolean, winnerId: number | null = null) =>
+    observeLeaderboardGame(room, { ...state, winnerId, players: [{ ...state.players[0], isBot }, state.players[1]] }, time);
+  update(2000, true);
+  update(5000, false);
+  update(6000, true);
+  update(10000, false, 0);
+  update(50000, true);
+  let stored: any;
+  await persistLeaderboardResult(room, game({ durationMs: 999999, players: [
+    { ...state.players[0], score: 10, autoplayMs: 0 }, { ...state.players[1], score: 7 },
+  ] }), { updateOne: async (_filter: any, update: any) => { stored = update.$setOnInsert; } }, 60000);
+  assert.equal(stored.durationMs, 9000);
+  assert.equal(stored.players[0].autoplayMs, 7000);
+  assert.equal(stored.players[1].autoplayMs, 0);
+  assert.deepEqual(board([stored]).entries.map(row => [row.points, row.gameCount, row.wins]), [[0, 1, 1]]);
+  assert.equal(resultRankPoints(stored.players, stored.players[0], stored).points, 0);
+});
+
+test('exactly half autoplay retains points; one millisecond more cancels points without erasing history', () => {
+  const record = game({ identityVersion: 1, durationMs: 10000 });
+  record.players = record.players.map((player: any) => ({ ...player, isOriginalBot: false, userId: String(player.id), autoplayMs: 5000 }));
+  assert.equal(board([record]).entries.find(row => row.userId === '0')!.points, 4);
+  record.players[0].autoplayMs = 5001;
+  const response = buildMonthlyLeaderboard([record], users, '2026-09', 20, NOW, '0');
+  assert.equal(response.entries.find(row => row.userId === '0')!.points, 0);
+  assert.equal(response.myGames![0].points, 0);
+  assert.equal(computeLeaderboardUserStats([record], users, NOW).get('0')!.wins, 1);
+  delete record.durationMs;
+  assert.equal(board([record]).entries.find(row => row.userId === '0')!.points, 4, 'legacy history cannot invent missing timing');
 });
 
 test('HTTP routes enforce signed auth/admin, strict settings, calendar validation and never accept caller awards', async () => {
@@ -267,7 +317,7 @@ test('HTTP routes enforce signed auth/admin, strict settings, calendar validatio
     assert.equal(result.month, '2026-09');
     assert.equal(result.topCount, 1);
     assert.equal(result.entries.length, 1);
-    assert.equal(result.entries[0].points, 8);
+    assert.equal(result.entries[0].points, 5); // Two humans: wins 2 + 2, second place 1.
     assert.equal(result.entries[0].email, undefined);
     assert.equal(response.headers.get('Cache-Control'), 'no-store');
     for (const query of ['month=2026-13', 'month=2026-1', 'month=2026-09&month=2026-08', 'month[$gt]=2026']) {
