@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const ICON_PATH = '/catan-icon-v18-512.png';
+const ICON_PATH = '/catan-icon-v19-512.png';
 const ICON = readFileSync(new URL(`.${ICON_PATH}`, import.meta.url));
 
 const DEFAULT_ROUTING_API = 'https://skot.catan-game.workers.dev/api/route';

@@ -2,9 +2,9 @@
 
 此目录只部署入口，不包含游戏资源。默认入口为 `skot-game.onrender.com`，默认游戏站为 `skot-game01.onrender.com`。
 
-## v18 启动图标修正
+## v19 透明启动图标
 
-入口现在自带原有清晰 Logo 的 512x512 PNG，不再跨站下载图标，也不再提供 192 像素候选图。图案、游戏页面、路由和登录同步逻辑均保持不变。新图标地址为 `/catan-icon-v18-512.png`，用于区别旧的缓存。
+入口自带透明背景 Logo 的 512x512 PNG，图案周围不再显示白色方块。新图标地址为 `/catan-icon-v19-512.png`，用于区别旧的缓存。启动屏底色仍为 `#e3f0f9`。
 
 将本目录整体覆盖 GitHub 仓库中的 `render-entry`，只需重新部署 `skot-game` 入口，Root Directory 仍为 `render-entry`。不要遗漏新增 PNG 文件，不需要重新部署 01/02/03 或 Cloudflare Worker。
 
