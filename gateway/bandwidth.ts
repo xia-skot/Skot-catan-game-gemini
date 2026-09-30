@@ -17,16 +17,42 @@ export const snapshotKey = (now: number) => `bandwidth:snapshot:${monthKey(now)}
 const ledgerKey = (id: string, now: number) => `bandwidth:ledger:${monthKey(now)}:${id}`;
 async function read<T>(kv: KV, key: string): Promise<T | null> { const s = await kv.get(key); return s ? JSON.parse(s) : null; }
 
+function bandwidthFactor(unit: unknown): number {
+  // Render's bandwidth endpoint also emits "mb" for megabytes. Keep this
+  // endpoint-specific alias explicit; do not lowercase arbitrary bit/rate units.
+  const units: Record<string, number> = { B: 1e-9, kB: 1e-6, KB: 1e-6, MB: 0.001, GB: 1,
+    mb: 0.001,
+    TB: 1000, KiB: 1024 / 1e9, MiB: 1048576 / 1e9, GiB: 1073741824 / 1e9,
+    byte: 1e-9, bytes: 1e-9, kilobyte: 1e-6, kilobytes: 1e-6,
+    megabyte: 0.001, megabytes: 0.001, gigabyte: 1, gigabytes: 1,
+    kibibyte: 1024 / 1e9, kibibytes: 1024 / 1e9,
+    mebibyte: 1048576 / 1e9, mebibytes: 1048576 / 1e9,
+    gibibyte: 1073741824 / 1e9, gibibytes: 1073741824 / 1e9 };
+  const name = typeof unit === 'string' ? unit.trim() : '';
+  const key = /^[a-z]+$/i.test(name) && name.length > 3 ? name.toLowerCase() : name;
+  if (!Object.hasOwn(units, key)) {
+    // Only expose the unit field, never the response body or request credentials.
+    const display = typeof unit === 'string' ? JSON.stringify(unit.slice(0, 40)) : typeof unit;
+    throw new Error(`无法识别带宽单位：${display}，请提供此错误文字`);
+  }
+  return units[key];
+}
+
 // Hourly samples are upserted by series and timestamp, never added again on polling.
 export function mergeSamples(points: Record<string, number>, series: any, resource: string, start: number, end: number) {
   if (!Array.isArray(series)) throw new Error('带宽接口格式不正确');
   let measuredAt = 0;
   for (const item of series) {
-    const units: Record<string, number> = { GB: 1, MB: 0.001, KB: 0.000001, B: 1e-9, bytes: 1e-9, GiB: 1.073741824, MiB: 0.001048576 };
-    const factor = units[item.unit];
-    if (factor === undefined || !Array.isArray(item.labels) || !Array.isArray(item.values)) throw new Error('无法识别带宽单位或数据格式');
+    if (!item || !Array.isArray(item.labels) || !Array.isArray(item.values)) {
+      const kind = (value: unknown) => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+      throw new Error(`带宽结构不匹配：labels=${kind(item?.labels)}，values=${kind(item?.values)}`);
+    }
+    if (item.labels.some((label: any) => !label || typeof label.field !== 'string' || typeof label.value !== 'string')) throw new Error('带宽 labels 字段格式不正确');
     const labels = JSON.stringify([...item.labels].sort((a, b) => `${a.field}:${a.value}`.localeCompare(`${b.field}:${b.value}`)));
     for (const p of item.values) {
+      if (!p || typeof p.timestamp !== 'string') throw new Error('带宽时间字段格式不正确');
+      const factor = bandwidthFactor(p.unit ?? item.unit);
+      if (p.unit != null && item.unit != null && factor !== bandwidthFactor(item.unit)) throw new Error('带宽样本单位与序列单位不一致');
       const t = Date.parse(p.timestamp);
       if (!Number.isFinite(t) || !Number.isFinite(p.value) || p.value < 0) throw new Error('带宽数据无效');
       if (t < start || t >= end) continue;
@@ -96,13 +122,15 @@ export async function collectBandwidth(env: BandwidthEnv, config: GatewayConfig,
       await kv.put(ledgerKey(site.id, now), JSON.stringify(ledger));
       row = { ...row, ownerId: service.ownerId, observedGB, usedGB: observedGB + ledger.offsetGB,
         complete: ledger.complete, checkedAt: now, measuredAt };
-      // A candidate must answer before new players are sent there.
+    } catch (error) {
+      row = { ...(old?.rows.find(r => r.id === site.id) || row), error: error instanceof Error ? error.message : '带宽查询失败' };
+    }
+    // Parsing and availability are independent; a metrics error does not mean the game is down.
+    if (env[site.secret]) {
       try {
         const health = await fetcher(`${site.origin}/api/health`, { redirect: 'manual', signal: AbortSignal.timeout(10000) });
         row.healthy = health.ok && (await health.json() as any).status === 'ok';
       } catch { row.healthy = false; }
-    } catch (error) {
-      row = { ...(old?.rows.find(r => r.id === site.id) || row), error: error instanceof Error ? error.message : '带宽查询失败' };
     }
     rows.push(row);
   }

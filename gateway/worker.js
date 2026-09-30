@@ -55,15 +55,55 @@ async function read(kv, key) {
   const s = await kv.get(key);
   return s ? JSON.parse(s) : null;
 }
+function bandwidthFactor(unit) {
+  const units = {
+    B: 1e-9,
+    kB: 1e-6,
+    KB: 1e-6,
+    MB: 1e-3,
+    GB: 1,
+    mb: 1e-3,
+    TB: 1e3,
+    KiB: 1024 / 1e9,
+    MiB: 1048576 / 1e9,
+    GiB: 1073741824 / 1e9,
+    byte: 1e-9,
+    bytes: 1e-9,
+    kilobyte: 1e-6,
+    kilobytes: 1e-6,
+    megabyte: 1e-3,
+    megabytes: 1e-3,
+    gigabyte: 1,
+    gigabytes: 1,
+    kibibyte: 1024 / 1e9,
+    kibibytes: 1024 / 1e9,
+    mebibyte: 1048576 / 1e9,
+    mebibytes: 1048576 / 1e9,
+    gibibyte: 1073741824 / 1e9,
+    gibibytes: 1073741824 / 1e9
+  };
+  const name = typeof unit === "string" ? unit.trim() : "";
+  const key = /^[a-z]+$/i.test(name) && name.length > 3 ? name.toLowerCase() : name;
+  if (!Object.hasOwn(units, key)) {
+    const display = typeof unit === "string" ? JSON.stringify(unit.slice(0, 40)) : typeof unit;
+    throw new Error(`\u65E0\u6CD5\u8BC6\u522B\u5E26\u5BBD\u5355\u4F4D\uFF1A${display}\uFF0C\u8BF7\u63D0\u4F9B\u6B64\u9519\u8BEF\u6587\u5B57`);
+  }
+  return units[key];
+}
 function mergeSamples(points, series, resource, start, end) {
   if (!Array.isArray(series)) throw new Error("\u5E26\u5BBD\u63A5\u53E3\u683C\u5F0F\u4E0D\u6B63\u786E");
   let measuredAt = 0;
   for (const item of series) {
-    const units = { GB: 1, MB: 1e-3, KB: 1e-6, B: 1e-9, bytes: 1e-9, GiB: 1.073741824, MiB: 1048576e-9 };
-    const factor = units[item.unit];
-    if (factor === void 0 || !Array.isArray(item.labels) || !Array.isArray(item.values)) throw new Error("\u65E0\u6CD5\u8BC6\u522B\u5E26\u5BBD\u5355\u4F4D\u6216\u6570\u636E\u683C\u5F0F");
+    if (!item || !Array.isArray(item.labels) || !Array.isArray(item.values)) {
+      const kind = (value) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+      throw new Error(`\u5E26\u5BBD\u7ED3\u6784\u4E0D\u5339\u914D\uFF1Alabels=${kind(item?.labels)}\uFF0Cvalues=${kind(item?.values)}`);
+    }
+    if (item.labels.some((label) => !label || typeof label.field !== "string" || typeof label.value !== "string")) throw new Error("\u5E26\u5BBD labels \u5B57\u6BB5\u683C\u5F0F\u4E0D\u6B63\u786E");
     const labels = JSON.stringify([...item.labels].sort((a, b) => `${a.field}:${a.value}`.localeCompare(`${b.field}:${b.value}`)));
     for (const p of item.values) {
+      if (!p || typeof p.timestamp !== "string") throw new Error("\u5E26\u5BBD\u65F6\u95F4\u5B57\u6BB5\u683C\u5F0F\u4E0D\u6B63\u786E");
+      const factor = bandwidthFactor(p.unit ?? item.unit);
+      if (p.unit != null && item.unit != null && factor !== bandwidthFactor(item.unit)) throw new Error("\u5E26\u5BBD\u6837\u672C\u5355\u4F4D\u4E0E\u5E8F\u5217\u5355\u4F4D\u4E0D\u4E00\u81F4");
       const t = Date.parse(p.timestamp);
       if (!Number.isFinite(t) || !Number.isFinite(p.value) || p.value < 0) throw new Error("\u5E26\u5BBD\u6570\u636E\u65E0\u6548");
       if (t < start || t >= end) continue;
@@ -140,14 +180,16 @@ async function collectBandwidth(env, config, now = Date.now(), fetcher = fetch) 
         checkedAt: now,
         measuredAt
       };
+    } catch (error) {
+      row = { ...old?.rows.find((r) => r.id === site.id) || row, error: error instanceof Error ? error.message : "\u5E26\u5BBD\u67E5\u8BE2\u5931\u8D25" };
+    }
+    if (env[site.secret]) {
       try {
         const health = await fetcher(`${site.origin}/api/health`, { redirect: "manual", signal: AbortSignal.timeout(1e4) });
         row.healthy = health.ok && (await health.json()).status === "ok";
       } catch {
         row.healthy = false;
       }
-    } catch (error) {
-      row = { ...old?.rows.find((r) => r.id === site.id) || row, error: error instanceof Error ? error.message : "\u5E26\u5BBD\u67E5\u8BE2\u5931\u8D25" };
     }
     rows.push(row);
   }

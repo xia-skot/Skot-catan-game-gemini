@@ -1,7 +1,7 @@
 export const LEADERBOARD_TIME_ZONE = 'Asia/Shanghai';
 export const DEFAULT_LEADERBOARD_TOP_COUNT = 20;
 export const MAX_LEADERBOARD_TOP_COUNT = 100;
-export const LEADERBOARD_SCORING_VERSION = 'rank-points-v15';
+export const LEADERBOARD_SCORING_VERSION = 'rank-points-v17';
 
 export interface LeaderboardGamePoints {
   roomId: string;

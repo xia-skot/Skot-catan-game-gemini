@@ -7,4 +7,4 @@ export type BotDifficulty = keyof typeof BOT_LEVELS;
 export const normalizeBotDifficulty = (value: unknown): BotDifficulty =>
   value === 'beginner' || value === 'expert' ? value : 'standard';
 export const BOT_TURN_LIMIT_MS = 15000;
-export const BOT_TRADE_WAIT_MS = 2400;
+export const BOT_TRADE_WAIT_MS = 10000;

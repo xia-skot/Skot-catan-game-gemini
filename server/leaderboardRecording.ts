@@ -5,6 +5,7 @@ interface Identity { id: number; sessionId: string | null; userId: string | null
 interface Recording {
   gameId: string;
   identities: Map<number, Identity>;
+  clock?: { startedAt: number; observedAt: number; finishedAt?: number; autoplay: Set<number>; elapsed: Map<number, number> };
   result?: Record<string, any>;
   pending?: Promise<void>;
   saved?: boolean;
@@ -19,7 +20,7 @@ export function hasUnsavedLeaderboardResult(room: object): boolean {
 }
 
 /** Call only after the server accepts a NEW start_game from a room member. */
-export function beginLeaderboardGame(room: any, initialState: any): boolean {
+export function beginLeaderboardGame(room: any, initialState: any, now = Date.now()): boolean {
   recordings.delete(room);
   if (!Array.isArray(initialState?.players) || !Array.isArray(room.players) ||
       !Array.isArray(room.settings?.botConfig) || initialState.players.length !== room.settings?.playerCount) return false;
@@ -38,12 +39,27 @@ export function beginLeaderboardGame(room: any, initialState: any): boolean {
       userId: typeof member?.userId === 'string' ? member.userId : null,
       isOriginalBot: configuredBot, isGuest: !member?.userId });
   }
-  recordings.set(room, { gameId: randomUUID(), identities });
+  recordings.set(room, { gameId: randomUUID(), identities,
+    clock: { startedAt: now, observedAt: now,
+      autoplay: new Set(initialState.players.filter((player: any) => !identities.get(player.id)?.isOriginalBot && player.isBot === true).map((player: any) => player.id)),
+      elapsed: new Map() } });
   return true;
 }
 
+/** Accumulate the previous mode up to this accepted transition using server time. */
+export function observeLeaderboardGame(room: object, state: any, now = Date.now()): void {
+  const recording = recordings.get(room), clock = recording?.clock;
+  if (!recording || !clock || clock.finishedAt !== undefined || !Array.isArray(state?.players)) return;
+  const time = Math.max(clock.observedAt, now);
+  for (const id of clock.autoplay) clock.elapsed.set(id, (clock.elapsed.get(id) || 0) + time - clock.observedAt);
+  clock.observedAt = time;
+  clock.autoplay = new Set(state.players.filter((player: any) => recording.identities.has(player.id) &&
+    !recording.identities.get(player.id)!.isOriginalBot && player.isBot === true).map((player: any) => player.id));
+  if (state.winnerId != null || state.phase === 'finished') clock.finishedAt = time;
+}
+
 /** Pass the existing server-built gameRecord, never req.body or a client award/score object. */
-export function persistLeaderboardResult(room: object, gameRecord: Record<string, any>, collection: any): Promise<void> {
+export function persistLeaderboardResult(room: object, gameRecord: Record<string, any>, collection: any, now = Date.now()): Promise<void> {
   if (!collection) return Promise.resolve();
   let recording = recordings.get(room);
   if (!recording) {
@@ -60,8 +76,12 @@ export function persistLeaderboardResult(room: object, gameRecord: Record<string
     if (!Array.isArray(gameRecord.players) || gameRecord.players.length !== recording.identities.size ||
         new Set(gameRecord.players.map((player: any) => player.id)).size !== recording.identities.size ||
         gameRecord.players.some((player: any) => !recording.identities.has(player.id))) return Promise.resolve();
+    observeLeaderboardGame(room, gameRecord, now);
+    const clock = recording.clock;
     recording.result = structuredClone({ ...gameRecord, gameId: recording.gameId, identityVersion: 1,
-      players: gameRecord.players.map((player: any) => ({ ...player, ...recording.identities.get(player.id) })) });
+      durationMs: clock ? (clock.finishedAt ?? clock.observedAt) - clock.startedAt : undefined,
+      players: gameRecord.players.map((player: any) => ({ ...player, ...recording.identities.get(player.id),
+        autoplayMs: clock ? clock.elapsed.get(player.id) || 0 : undefined })) });
   }
   // Set pending synchronously. Concurrent winner messages share one write; retry preserves the first result/date.
   const pending = Promise.resolve().then(async () => {

@@ -1,5 +1,9 @@
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+
+const ICON_PATH = '/catan-icon-v18-512.png';
+const ICON = readFileSync(new URL(`.${ICON_PATH}`, import.meta.url));
 
 const DEFAULT_ROUTING_API = 'https://skot.catan-game.workers.dev/api/route';
 const DEFAULT_FALLBACK = 'https://skot-game01.onrender.com';
@@ -108,6 +112,8 @@ function launcherHtml(destination) {
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#e3f0f9">
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="512x512" href="${ICON_PATH}">
+  <link rel="apple-touch-icon" sizes="512x512" href="${ICON_PATH}">
   <title>卡坦岛</title>
   <style>html,body,iframe{width:100%;height:100%;margin:0;border:0}html,body{overflow:hidden;background:#e3f0f9}iframe{display:block}</style>
 </head>
@@ -149,14 +155,20 @@ export function createServer(options = {}) {
       return sendJson(response, 200, target);
     }
 
+    if (url.pathname === ICON_PATH) {
+      return sendText(response, 200, 'image/png', ICON, {
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Content-Length': String(ICON.length),
+      });
+    }
+
     if (url.pathname === '/manifest.json') {
       return sendJson(response, 200, {
         name: 'CATAN · 卡坦岛', short_name: '卡坦岛', start_url: '/', scope: '/',
         display: 'fullscreen', display_override: ['fullscreen', 'standalone'], orientation: 'any',
         background_color: '#e3f0f9', theme_color: '#e3f0f9',
         icons: [
-          { src: 'https://skot-game01.onrender.com/icons/catan-original-v6-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'https://skot-game01.onrender.com/icons/catan-original-v6-192.png', sizes: '192x192', type: 'image/png' },
+          { src: ICON_PATH, sizes: '512x512', type: 'image/png', purpose: 'any' },
         ],
       });
     }
@@ -175,7 +187,7 @@ export function createServer(options = {}) {
     const target = await resolveTarget(request.url || '/', host, options);
     const destination = destinationUrl(target.origin, request.url || '/', host);
     return sendText(response, 200, 'text/html; charset=utf-8', launcherHtml(destination), {
-      'Content-Security-Policy': "default-src 'none'; frame-src https://*.onrender.com; script-src 'self'; style-src 'unsafe-inline'; manifest-src 'self'; img-src https://*.onrender.com; frame-ancestors 'none'; base-uri 'none'",
+      'Content-Security-Policy': "default-src 'none'; frame-src https://*.onrender.com; script-src 'self'; style-src 'unsafe-inline'; manifest-src 'self'; img-src 'self' https://*.onrender.com; frame-ancestors 'none'; base-uri 'none'",
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       'Referrer-Policy': 'no-referrer',
     });

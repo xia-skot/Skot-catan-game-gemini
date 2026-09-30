@@ -1,7 +1,11 @@
+param(
+  [ValidatePattern('^v[0-9]+$')][string]$Version = 'v16',
+  [switch]$CompleteOnly
+)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$archivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-complete-v16.zip'
+$archivePath = Join-Path (Split-Path -Parent $projectRoot) "catan-complete-$Version.zip"
 $directories = @('.github', 'app', 'demo', 'gateway', 'public', 'render-entry', 'scripts', 'server', 'shared', 'src', 'tests')
 $files = @('.env.example', '.gitignore', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'playwright.config.ts', 'index.html', 'demo.html', 'server.ts', 'render.yaml',
@@ -40,6 +44,7 @@ try {
 } finally { $check.Dispose(); $sha.Dispose() }
 Get-Item -LiteralPath $archivePath | Select-Object FullName,Length
 Write-Output "Verified files: $($files.Count)"
+if ($CompleteOnly) { return }
 
 $gatewayArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-gateway-v16.zip'
 $gatewayFiles = @{'gateway/worker.js' = 'worker.js'; 'gateway/wrangler.jsonc' = 'wrangler.jsonc'; 'GATEWAY-DEPLOYMENT.md' = 'GATEWAY-DEPLOYMENT.md'; 'BANDWIDTH-DEPLOYMENT.md' = 'BANDWIDTH-DEPLOYMENT.md'}

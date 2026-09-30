@@ -1,4 +1,8 @@
 interface ResultPlayer {
+  id?: unknown;
+  isBot?: boolean;
+  isOriginalBot?: boolean;
+  autoplayMs?: unknown;
   score?: unknown;
   breakdown?: Record<string, unknown>;
 }
@@ -16,10 +20,16 @@ export function recordedPlayerScore(player: ResultPlayer): number | null {
   return Number.isSafeInteger(total) ? Math.max(player.score, total) : player.score;
 }
 
-export function resultRankPoints(players: readonly ResultPlayer[], player: ResultPlayer): { rank: number; points: number } {
+export function resultRankPoints(players: readonly ResultPlayer[], player: ResultPlayer,
+  game: { durationMs?: unknown; winnerId?: unknown } = {}): { rank: number; points: number } {
   const participants = players.filter(other => recordedPlayerScore(other) !== null);
   const score = recordedPlayerScore(player);
   if (score === null) return { rank: 0, points: 0 };
   const higher = participants.filter(other => recordedPlayerScore(other)! > score).length;
-  return { rank: higher + 1, points: participants.length - higher };
+  const isBot = (entry: ResultPlayer) => entry.isOriginalBot ?? entry.isBot ?? false;
+  const humans = participants.filter(other => !isBot(other)).length;
+  const excessiveAutoplay = typeof game.durationMs === 'number' && Number.isFinite(game.durationMs) && game.durationMs > 0 &&
+    typeof player.autoplayMs === 'number' && Number.isFinite(player.autoplayMs) && player.autoplayMs > game.durationMs / 2;
+  const soloLoss = humans === 1 && game.winnerId != null && String(player.id) !== String(game.winnerId);
+  return { rank: higher + 1, points: isBot(player) || excessiveAutoplay || soloLoss ? 0 : Math.max(0, humans - higher) };
 }

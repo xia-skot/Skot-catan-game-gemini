@@ -5,8 +5,8 @@ import {
 import { recordedPlayerScore, resultRankPoints } from '../shared/gameResult';
 
 type StoredDocument = Record<string, any>;
-interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null }
-interface EligibleGame { roomId: string; completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean }
+interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null; autoplayMs?: number }
+interface EligibleGame { roomId: string; completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean; durationMs?: number }
 export interface LeaderboardUserStats { totalGames: number; wins: number; winRate: number; recent3DayGames: number }
 
 const normalizeName = (value: string) => value.trim().toLowerCase();
@@ -32,6 +32,7 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
         typeof isBot !== 'boolean' || score === null) return null;
     players.push({ id, name: normalizeName(player.name), isBot,
       isGuest: player.isGuest === true, score,
+      autoplayMs: stableIdentity && Number.isFinite(player.autoplayMs) && player.autoplayMs >= 0 ? player.autoplayMs : undefined,
       userId: typeof player.userId === 'string' && player.userId ? player.userId : null,
       sessionId: typeof player.sessionId === 'string' && player.sessionId ? player.sessionId : null });
   }
@@ -40,7 +41,8 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
   const winner = players.find(player => player.id === winnerId);
   const target = record.mapType === 'standard' ? 10 : 14;
   if (!winner || winner.score < target || players.some(player => player.score > winner.score)) return null;
-  return { roomId: String(record.roomId || ''), completedAt, winnerId: winner.id, players, stableIdentity };
+  return { roomId: String(record.roomId || ''), completedAt, winnerId: winner.id, players, stableIdentity,
+    durationMs: stableIdentity && Number.isFinite(record.durationMs) && record.durationMs > 0 ? record.durationMs : undefined };
 }
 
 /** Older records have no per-game ID. Collapse identical room outcomes conservatively. */
@@ -52,9 +54,9 @@ export function eligibleLeaderboardGames(records: readonly StoredDocument[], now
     const explicitId = typeof record.gameId === 'string' && record.gameId.trim() ? record.gameId : null;
     // The producer, not an HTTP request, must supply any future gameId. Current records use this legacy key.
     if (!game && !explicitId) continue;
-    const roster = game?.players.map(player => [player.id, player.name, player.isBot, player.isGuest, player.score, player.userId, player.sessionId])
+    const roster = game?.players.map(player => [player.id, player.name, player.isBot, player.isGuest, player.score, player.userId, player.sessionId, player.autoplayMs])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    const signature = JSON.stringify([record.mapType, record.turnCount, game?.winnerId, game?.stableIdentity, roster]);
+    const signature = JSON.stringify([record.mapType, record.turnCount, game?.winnerId, game?.stableIdentity, game?.durationMs, roster]);
     let key: string;
     if (explicitId) key = `id:${explicitId}`;
     else {
@@ -126,7 +128,7 @@ export function buildMonthlyLeaderboard(records: readonly StoredDocument[], user
     for (const { user, player } of creditedPlayers(game, resolve)) {
       const userId = String(user!._id);
       const row = totals.get(userId) || { userId, username: user!.username, points: 0, gameCount: 0, wins: 0 };
-      const award = resultRankPoints(game.players, player);
+      const award = resultRankPoints(game.players, player, game);
       row.points += award.points;
       if (userId === viewerId) myGames.push({ roomId: game.roomId, completedAt: new Date(game.completedAt).toISOString(),
         rank: award.rank, playerCount: game.players.length, points: award.points });
