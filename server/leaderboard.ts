@@ -2,11 +2,11 @@ import {
   DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, LEADERBOARD_TIME_ZONE,
   monthBounds, recordTime, LEADERBOARD_SCORING_VERSION, type MonthlyLeaderboard, type LeaderboardGamePoints,
 } from '../shared/leaderboard';
-import { recordedPlayerScore, resultRankPoints } from '../shared/gameResult';
+import { recordedPlayerScore, storedResultRankPoints } from '../shared/gameResult';
 
 type StoredDocument = Record<string, any>;
-interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null; autoplayMs?: number }
-interface EligibleGame { roomId: string; completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean; durationMs?: number }
+interface Participant { id: string; name: string; isBot: boolean; isGuest: boolean; score: number; userId: string | null; sessionId: string | null; autoplayMs?: number; rankAward?: { rank: number; points: number } }
+interface EligibleGame { roomId: string; completedAt: number; winnerId: string; players: Participant[]; stableIdentity: boolean; durationMs?: number; scoringVersion?: string }
 export interface LeaderboardUserStats { totalGames: number; wins: number; winRate: number; recent3DayGames: number }
 
 const normalizeName = (value: string) => value.trim().toLowerCase();
@@ -14,13 +14,46 @@ const seatId = (value: unknown): string | null =>
   (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) ||
   (typeof value === 'string' && value.trim().length > 0) ? String(value) : null;
 
+/** v17 captured identities before the opening dice reordered seats. Repair only complete, unambiguous permutations. */
+export function repairLegacySeatAttribution(record: StoredDocument, users: readonly StoredDocument[]): StoredDocument {
+  if (record?.identityVersion !== 1 || record.scoringVersion || !Array.isArray(record.players)) return record;
+  const completedAt = recordTime(record.completedAt);
+  if (completedAt === null) return record;
+  const names = new Map<string, StoredDocument[]>();
+  for (const user of users) if (typeof user.username === 'string' && user.username.trim()) {
+    const key = normalizeName(user.username);
+    names.set(key, [...(names.get(key) || []), user]);
+  }
+  const linked = record.players.map((player: any) => player?.userId).filter((id: unknown): id is string => typeof id === 'string' && !!id);
+  if (!linked.length || new Set(linked).size !== linked.length) return record;
+  const matched: Array<StoredDocument | null> = [];
+  for (const player of record.players) {
+    if (!player || typeof player.name !== 'string') return record;
+    const candidates = names.get(normalizeName(player.name)) || [];
+    if (candidates.length === 1 && candidates[0].isGuest === false && candidates[0].role !== 'guest' &&
+        recordTime(candidates[0].createdAt) !== null && recordTime(candidates[0].createdAt)! <= completedAt) {
+      matched.push(candidates[0]);
+    } else if (candidates.length === 0 && /^领主 AI \d+$/.test(player.name.trim())) {
+      matched.push(null);
+    } else return record;
+  }
+  const actual = matched.filter(Boolean).map(user => String(user!._id));
+  if (actual.length !== linked.length || new Set(actual).size !== actual.length ||
+      !actual.every(id => linked.includes(id))) return record;
+  if (record.players.every((player: any, index: number) =>
+    (matched[index] ? player.userId === String(matched[index]._id) && player.isOriginalBot === false : player.isOriginalBot === true))) return record;
+  return { ...record, players: record.players.map((player: any, index: number) => ({ ...player,
+    userId: matched[index] ? String(matched[index]._id) : null,
+    isOriginalBot: !matched[index], isGuest: !matched[index], sessionId: null, autoplayMs: undefined })) };
+}
+
 function normalizeGame(record: StoredDocument, now: number): EligibleGame | null {
   const completedAt = recordTime(record.completedAt);
   if (completedAt === null || completedAt > now || !Array.isArray(record.players) ||
       (record.phase !== undefined && record.phase !== 'finished') ||
       (record.mapType !== 'standard' && record.mapType !== 'archipelago')) return null;
   const players: Participant[] = [];
-  const stableIdentity = record.identityVersion === 1;
+  const stableIdentity = record.identityVersion === 1 || record.identityVersion === 2;
   if (record.identityVersion !== undefined && !stableIdentity) return null;
   for (const player of record.players) {
     if (!player || typeof player !== 'object') return null;
@@ -33,6 +66,7 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
     players.push({ id, name: normalizeName(player.name), isBot,
       isGuest: player.isGuest === true, score,
       autoplayMs: stableIdentity && Number.isFinite(player.autoplayMs) && player.autoplayMs >= 0 ? player.autoplayMs : undefined,
+      rankAward: player.rankAward,
       userId: typeof player.userId === 'string' && player.userId ? player.userId : null,
       sessionId: typeof player.sessionId === 'string' && player.sessionId ? player.sessionId : null });
   }
@@ -42,14 +76,16 @@ function normalizeGame(record: StoredDocument, now: number): EligibleGame | null
   const target = record.mapType === 'standard' ? 10 : 14;
   if (!winner || winner.score < target || players.some(player => player.score > winner.score)) return null;
   return { roomId: String(record.roomId || ''), completedAt, winnerId: winner.id, players, stableIdentity,
+    scoringVersion: record.scoringVersion,
     durationMs: stableIdentity && Number.isFinite(record.durationMs) && record.durationMs > 0 ? record.durationMs : undefined };
 }
 
 /** Older records have no per-game ID. Collapse identical room outcomes conservatively. */
-export function eligibleLeaderboardGames(records: readonly StoredDocument[], now = Date.now()): EligibleGame[] {
+export function eligibleLeaderboardGames(records: readonly StoredDocument[], now = Date.now(), users: readonly StoredDocument[] = []): EligibleGame[] {
   const groups = new Map<string, { game: EligibleGame | null; signature: string; conflict: boolean }>();
-  for (const record of records) {
-    if (!record || typeof record !== 'object') continue;
+  for (const raw of records) {
+    if (!raw || typeof raw !== 'object') continue;
+    const record = users.length ? repairLegacySeatAttribution(raw, users) : raw;
     const game = normalizeGame(record, now);
     const explicitId = typeof record.gameId === 'string' && record.gameId.trim() ? record.gameId : null;
     // The producer, not an HTTP request, must supply any future gameId. Current records use this legacy key.
@@ -104,7 +140,7 @@ export function computeLeaderboardUserStats(records: readonly StoredDocument[], 
     stats.set(String(user._id), { totalGames: 0, wins: 0, winRate: 0, recent3DayGames: 0 });
   }
   const resolve = accountResolver(users);
-  for (const game of eligibleLeaderboardGames(records, now)) {
+  for (const game of eligibleLeaderboardGames(records, now, users)) {
     for (const { user, player } of creditedPlayers(game, resolve)) {
       const row = stats.get(String(user!._id))!;
       row.totalGames++;
@@ -123,12 +159,12 @@ export function buildMonthlyLeaderboard(records: readonly StoredDocument[], user
   const totals = new Map<string, { userId: string; username: string; points: number; gameCount: number; wins: number }>();
   const myGames: LeaderboardGamePoints[] = [];
   // Deduplicate BEFORE the month filter so a retried write across midnight cannot score twice.
-  for (const game of eligibleLeaderboardGames(records, now)) {
+  for (const game of eligibleLeaderboardGames(records, now, users)) {
     if (game.completedAt < start || game.completedAt >= end) continue;
     for (const { user, player } of creditedPlayers(game, resolve)) {
       const userId = String(user!._id);
       const row = totals.get(userId) || { userId, username: user!.username, points: 0, gameCount: 0, wins: 0 };
-      const award = resultRankPoints(game.players, player, game);
+      const award = storedResultRankPoints(game.players, player, game);
       row.points += award.points;
       if (userId === viewerId) myGames.push({ roomId: game.roomId, completedAt: new Date(game.completedAt).toISOString(),
         rank: award.rank, playerCount: game.players.length, points: award.points });

@@ -18,7 +18,7 @@ export function mongoLeaderboardStore(getCollections: () => { games: any; users:
     async readRecords() {
       const { games, users } = collections();
       const [gameRecords, userRecords] = await Promise.all([
-        games.find({}).project({ gameId: 1, identityVersion: 1, roomId: 1, players: 1, winnerId: 1, turnCount: 1, mapType: 1, completedAt: 1, phase: 1, durationMs: 1 }).toArray(),
+        games.find({}).project({ gameId: 1, identityVersion: 1, scoringVersion: 1, roomId: 1, players: 1, winnerId: 1, turnCount: 1, mapType: 1, completedAt: 1, phase: 1, durationMs: 1 }).toArray(),
         users.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray(),
       ]);
       return { games: gameRecords, users: userRecords };

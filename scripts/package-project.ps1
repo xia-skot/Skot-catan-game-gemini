@@ -66,8 +66,8 @@ try {
 } finally { $gatewayCheck.Dispose(); $gatewaySha.Dispose() }
 Get-Item -LiteralPath $gatewayArchivePath | Select-Object FullName,Length
 
-$renderEntryArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-render-entry-v2.zip'
-$renderEntryFiles = @('package.json', 'server.js', 'server.test.js', 'render.yaml', 'README.md')
+$renderEntryArchivePath = Join-Path (Split-Path -Parent $projectRoot) 'catan-render-entry-v3.zip'
+$renderEntryFiles = @('package.json', 'server.js', 'server.test.js', 'render.yaml', 'README.md', 'catan-icon-v19-512.png')
 $renderEntryZip = [IO.Compression.ZipArchive]::new([IO.File]::Open($renderEntryArchivePath, [IO.FileMode]::CreateNew), [IO.Compression.ZipArchiveMode]::Create)
 try {
   foreach ($relative in $renderEntryFiles) {

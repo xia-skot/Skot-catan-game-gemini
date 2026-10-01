@@ -5,6 +5,7 @@ interface ResultPlayer {
   autoplayMs?: unknown;
   score?: unknown;
   breakdown?: Record<string, unknown>;
+  rankAward?: { rank: number; points: number };
 }
 
 export function recordedPlayerScore(player: ResultPlayer): number | null {
@@ -32,4 +33,13 @@ export function resultRankPoints(players: readonly ResultPlayer[], player: Resul
     typeof player.autoplayMs === 'number' && Number.isFinite(player.autoplayMs) && player.autoplayMs > game.durationMs / 2;
   const soloLoss = humans === 1 && game.winnerId != null && String(player.id) !== String(game.winnerId);
   return { rank: higher + 1, points: isBot(player) || excessiveAutoplay || soloLoss ? 0 : Math.max(0, humans - higher) };
+}
+
+export function storedResultRankPoints(players: readonly ResultPlayer[], player: ResultPlayer,
+  game: { durationMs?: unknown; winnerId?: unknown; scoringVersion?: unknown } = {}): { rank: number; points: number } {
+  const award = player.rankAward;
+  if (game.scoringVersion === 'rank-points-v18' && award &&
+      Number.isSafeInteger(award.rank) && award.rank >= 1 &&
+      Number.isSafeInteger(award.points) && award.points >= 0) return award;
+  return resultRankPoints(players, player, game);
 }
