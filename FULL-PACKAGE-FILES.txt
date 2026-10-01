@@ -67,6 +67,8 @@ public/icons/catan-original-v6-192.png
 public/icons/catan-original-v6-512.png
 public/manifest.json
 README.md
+render-entry/catan-icon-v18-512.png
+render-entry/catan-icon-v19-512.png
 render-entry/package.json
 render-entry/README.md
 render-entry/render.yaml
@@ -88,6 +90,7 @@ server/leaderboardRecording.ts
 server/leaderboardRoutes.ts
 server/messageRoutes.ts
 shared/botDifficulty.ts
+shared/criticalGameTransition.ts
 shared/gameResult.ts
 shared/gateway.ts
 shared/leaderboard.ts
@@ -145,6 +148,7 @@ tests/bandwidth.test.ts
 tests/bot-strategy.test.ts
 tests/chat-v6.spec.ts
 tests/edge-cases.spec.ts
+tests/entry-icon-v19.spec.ts
 tests/gateway-bandwidth-ui.mjs
 tests/gateway-v15.spec.ts
 tests/gateway.test.ts

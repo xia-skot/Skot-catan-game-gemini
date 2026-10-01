@@ -115,6 +115,38 @@ test('real settlement reducer rejects pirate coast even when caller omits the se
   expect(result).toEqual({ blocked: true, built: true });
 });
 
+test('StrictMode dice roll samples only one pair and keeps the committed result', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const React = (await import('/node_modules/.vite/deps/' + 'react.js')).default;
+    const { createRoot } = (await import('/node_modules/.vite/deps/' + 'react-dom_client.js')).default;
+    const { useCatanGame } = await import('/src/' + 'useCatanGame.ts');
+    let game: any;
+    function Harness() { game = useCatanGame(); return null; }
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    const flush = () => new Promise(resolve => setTimeout(resolve, 80));
+    const originalRandom = Math.random;
+    try {
+      root.render(React.createElement(React.StrictMode, null, React.createElement(Harness)));
+      await flush();
+      const state = game.initGame(2, 'standard');
+      game.syncGameState({ ...state, phase: 'main', hasRolled: false, dice: [0, 0] });
+      await flush();
+      let calls = 0;
+      const sequence = [0, 0.5, 0.99, 0.99];
+      Math.random = () => { calls++; return sequence[calls - 1] ?? 0.99; };
+      game.rollDice();
+      await flush();
+      return { calls, dice: game.gameState.dice, hasRolled: game.gameState.hasRolled };
+    } finally {
+      Math.random = originalRandom;
+      root.unmount(); host.remove();
+    }
+  });
+  expect(result).toEqual({ calls: 2, dice: [1, 4], hasRolled: true });
+});
+
 test('AI resolves selection cards and setup; settlement report is compact', async ({ page }, info) => {
   await start(page);
   await page.evaluate(async () => {

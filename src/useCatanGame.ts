@@ -1394,20 +1394,18 @@ export function useCatanGame() {
   }, []);
 
   const rollDice = useCallback(() => {
+    const d1 = Math.floor(Math.random() * 6) + 1;
+    const d2 = Math.floor(Math.random() * 6) + 1;
     setGameState(prev => {
       if (!prev || prev.phase === 'finished') return prev;
 
       if (prev.phase === 'initial_dice_roll') {
         if (prev.hasRolled) return prev;
-        const d1 = Math.floor(Math.random() * 6) + 1;
-        const d2 = Math.floor(Math.random() * 6) + 1;
         return { ...prev, dice: [d1, d2], hasRolled: true };
       }
 
       if (prev.phase === 'setup' || prev.hasRolled) return prev;
       
-      const d1 = Math.floor(Math.random() * 6) + 1;
-      const d2 = Math.floor(Math.random() * 6) + 1;
       return { ...prev, dice: [d1, d2] as [number, number], hasRolled: true, diceRollPending: true };
     });
   }, []);
@@ -2389,6 +2387,7 @@ export function useCatanGame() {
   }, []);
 
   const stealResource = useCallback((fromPlayerId: number) => {
+    const randomDraw = Math.random();
     setGameState(prev => {
       if (!prev || prev.phase !== 'stealing') return prev;
       const fromPlayer = prev.players[fromPlayerId];
@@ -2413,7 +2412,7 @@ export function useCatanGame() {
         };
       }
 
-      const stolenRes = availableResources[Math.floor(Math.random() * availableResources.length)];
+      const stolenRes = availableResources[Math.floor(randomDraw * availableResources.length)];
       
       const updatedPlayers = [...prev.players];
       updatedPlayers[fromPlayerId] = {

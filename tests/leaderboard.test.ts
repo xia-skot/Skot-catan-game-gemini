@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import type { AddressInfo } from 'node:net';
-import { buildMonthlyLeaderboard, computeLeaderboardUserStats, eligibleLeaderboardGames } from '../server/leaderboard';
+import { buildMonthlyLeaderboard, computeLeaderboardUserStats, eligibleLeaderboardGames, repairLegacySeatAttribution } from '../server/leaderboard';
 import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from '../server/leaderboardRecording';
-import { resultRankPoints } from '../shared/gameResult';
+import { resultRankPoints, storedResultRankPoints } from '../shared/gameResult';
+import { canAcceptCriticalGameTransition } from '../shared/criticalGameTransition';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from '../server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from '../server/leaderboardDemo';
 import { monthBounds, shanghaiMonth, shiftMonth, sortAdminPlayers } from '../shared/leaderboard';
@@ -30,7 +31,7 @@ test('legacy score breakdowns and history award the same monthly points', () => 
   const response = buildMonthlyLeaderboard(records, users, '2026-09', 20, NOW, '0');
   assert.deepEqual(response.myGames?.map(game => game.points), [1, 1, 1]);
   assert.equal(response.myGames?.reduce((sum, game) => sum + game.points, 0), row.points);
-  assert.equal(response.scoringVersion, 'rank-points-v17');
+  assert.equal(response.scoringVersion, 'rank-points-v18');
 });
 
 test('a corrected complete breakdown governs ranking while malformed details cannot inflate a score', () => {
@@ -162,12 +163,14 @@ test('noncontiguous original AI slot 3 compacts to game seat 1; runtime bot/user
   const result = game({ players: [{ ...state.players[0], score: 10 }, { ...state.players[1], score: 7 }] });
   await persistLeaderboardResult(room, result, collection, 0);
   const stored = writes[0][1].$setOnInsert;
-  assert.equal(stored.identityVersion, 1);
+  assert.equal(stored.identityVersion, 2);
+  assert.equal(stored.scoringVersion, 'rank-points-v18');
   assert.match(stored.gameId, /^[a-f0-9-]{36}$/);
   assert.equal(stored.players[0].userId, '0');
   assert.equal(stored.players[0].isOriginalBot, false);
   assert.equal(stored.players[1].isOriginalBot, true);
   assert.equal(stored.players[1].userId, null);
+  assert.deepEqual(stored.players[0].rankAward, { rank: 1, points: 1 });
   assert.deepEqual(board([stored]).entries.map(row => [row.userId, row.points]), [['0', 1]]);
   assert.equal(writes[0][2].upsert, true);
 });
@@ -273,6 +276,70 @@ test('server accumulates multiple autoplay periods, freezes at finish, and overr
   assert.equal(stored.players[1].autoplayMs, 0);
   assert.deepEqual(board([stored]).entries.map(row => [row.points, row.gameCount, row.wins]), [[0, 1, 1]]);
   assert.equal(resultRankPoints(stored.players, stored.players[0], stored).points, 0);
+});
+
+test('opening dice reorder keeps account and autoplay attached to the same human', async () => {
+  const room = { hostId: 'session-a', players: [0, 1, 2].map(index => ({ id: `session-${'abc'[index]}`, name: users[index].username, userId: String(index) })),
+    settings: { playerCount: 4, mapType: 'archipelago', botConfig: [false, false, true, false] } };
+  const initial = { players: [
+    { id: 0, name: 'A', sessionId: 'session-a', isBot: false },
+    { id: 1, name: 'B', sessionId: 'session-b', isBot: false },
+    { id: 2, name: '领主 AI 3', isBot: true },
+    { id: 3, name: 'C', sessionId: 'session-c', isBot: false },
+  ] };
+  assert.equal(beginLeaderboardGame(room, initial, 1000), true);
+  const reordered = [
+    { ...initial.players[3], id: 0, score: 14 },
+    { ...initial.players[1], id: 1, score: 11 },
+    { ...initial.players[0], id: 2, score: 11, isBot: true },
+    { ...initial.players[2], id: 3, score: 4 },
+  ];
+  observeLeaderboardGame(room, { players: reordered }, 3000);
+  let stored: any;
+  await persistLeaderboardResult(room, game({ mapType: 'archipelago', winnerId: 0, players: reordered }),
+    { updateOne: async (_filter: any, update: any) => { stored = update.$setOnInsert; } }, 9000);
+  assert.equal(stored.identityVersion, 2);
+  assert.deepEqual(stored.players.map((player: any) => player.userId), ['2', '1', '0', null]);
+  assert.deepEqual(stored.players.map((player: any) => player.isOriginalBot), [false, false, false, true]);
+  assert.equal(stored.players[2].autoplayMs, 6000);
+  assert.deepEqual(stored.players.map((player: any) => player.rankAward), [
+    { rank: 1, points: 3 }, { rank: 2, points: 2 }, { rank: 2, points: 0 }, { rank: 4, points: 0 },
+  ]);
+  const result = board([stored]);
+  assert.deepEqual(result.entries.map(row => [row.userId, row.points]), [['2', 3], ['1', 2], ['0', 0]]);
+  assert.deepEqual(stored.players.map((player: any) => storedResultRankPoints(stored.players, player, stored)),
+    stored.players.map((player: any) => player.rankAward));
+});
+
+test('v17 seat permutation is repaired only when every registered name and linked account agree as a set', () => {
+  const legacy = game({ identityVersion: 1, gameId: 'room-472304', roomId: '472304', mapType: 'archipelago',
+    players: [
+      { id: 0, name: 'C', score: 14, isBot: false, isOriginalBot: false, userId: '0', isGuest: false },
+      { id: 1, name: 'B', score: 11, isBot: false, isOriginalBot: false, userId: '1', isGuest: false },
+      { id: 2, name: 'A', score: 11, isBot: false, isOriginalBot: true, userId: null, isGuest: true },
+      { id: 3, name: '领主 AI 3', score: 4, isBot: true, isOriginalBot: false, userId: '2', isGuest: false },
+    ] });
+  assert.deepEqual(eligibleLeaderboardGames([legacy], NOW)[0].players.map(player => player.userId), ['0', '1', null, '2']);
+  const repaired = repairLegacySeatAttribution(legacy, users);
+  assert.deepEqual(repaired.players.map((player: any) => player.userId), ['2', '1', '0', null]);
+  assert.deepEqual(board([legacy]).entries.map(row => [row.userId, row.points]), [['2', 3], ['0', 2], ['1', 2]]);
+  assert.deepEqual(repaired.players.map((player: any) => storedResultRankPoints(repaired.players, player, repaired).points), [3, 2, 2, 0]);
+  const renamed = users.map(user => user._id === '2' ? { ...user, username: 'renamed' } : user);
+  assert.equal(repairLegacySeatAttribution(legacy, renamed), legacy);
+});
+
+test('server accepts the first dice and blockade actions but rejects a second result in the same turn', () => {
+  const players = [{ sessionId: 'human', isBot: false }, { isBot: true }];
+  const base = { turn: 4, currentPlayerIndex: 1, phase: 'main', hasRolled: false, dice: [0, 0], robberHexId: 'old', pirateHexId: null, players };
+  const first = { ...base, hasRolled: true, dice: [2, 3] };
+  assert.equal(canAcceptCriticalGameTransition(base, first, 'controller', 'controller'), true);
+  assert.equal(canAcceptCriticalGameTransition(first, { ...first, dice: [6, 1] }, 'controller', 'controller'), false);
+  assert.equal(canAcceptCriticalGameTransition(base, first, 'other', 'controller'), false);
+  const robber = { ...first, phase: 'robber' };
+  const moved = { ...robber, phase: 'main', robberHexId: 'first' };
+  assert.equal(canAcceptCriticalGameTransition(robber, moved, 'controller', 'controller'), true);
+  assert.equal(canAcceptCriticalGameTransition(moved, { ...moved, robberHexId: 'second' }, 'controller', 'controller'), false);
+  assert.equal(canAcceptCriticalGameTransition(robber, moved, 'other', 'controller'), false);
 });
 
 test('exactly half autoplay retains points; one millisecond more cancels points without erasing history', () => {

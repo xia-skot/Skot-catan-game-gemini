@@ -6,7 +6,7 @@ import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { Leaderboard } from './Leaderboard';
 import { SystemAnnouncements } from './SystemAnnouncements';
-import { recordedPlayerScore, resultRankPoints } from '../../shared/gameResult';
+import { recordedPlayerScore, storedResultRankPoints } from '../../shared/gameResult';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { MESSAGE_READ_EVENT, markMessagesRead, readMessageIds, messageReadKey } from '../messageReadState';
@@ -1363,7 +1363,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                   return (
                                     <tr key={idx} className={`${isWinner ? 'bg-yellow-50/30' : ''}`}>
                                       <td className="py-2 px-2 text-center font-black text-slate-400">
-                                        {resultRankPoints(sortedPlayers, p, g).rank}
+                                        {storedResultRankPoints(sortedPlayers, p, g).rank}
                                       </td>
                                       <td className="py-2 px-2 font-bold text-slate-700 whitespace-nowrap">
                                         {p.name} {isWinner && '👑'}
@@ -1375,7 +1375,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                       <td className="py-2 px-2 text-center">{p.breakdown?.largestArmy ? 2 : 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.vpCards || 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.islandBonus || 0}</td>
-                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{resultRankPoints(sortedPlayers, p, g).points}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{storedResultRankPoints(sortedPlayers, p, g).points}</td>
                                     </tr>
                                   );
                                 })}

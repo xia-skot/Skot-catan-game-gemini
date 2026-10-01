@@ -24,13 +24,13 @@ test('only the host starts and only joined non-spectators update a room', async 
     const initial = { players: [
       { id: 0, sessionId: 'test-host', name: 'Host', isBot: false },
       ...[1, 2, 3].map(id => ({ id, name: `AI ${id}`, isBot: true })),
-    ], phase: 'setup', winnerId: null, turn: 1 };
+    ], phase: 'setup', winnerId: null, turn: 1, robberHexId: 'old', pirateHexId: null };
     outsider.emit('start_game', 'authority-test', initial);
     expect((await snapshot(outsider)).gameState).toBeUndefined();
     spectator.emit('start_game', 'authority-test', initial);
     expect((await snapshot(spectator)).gameState).toBeUndefined();
     host.emit('start_game', 'authority-test', initial);
-    expect((await snapshot(host)).gameState).toEqual(initial);
+    expect((await snapshot(host)).gameState).toMatchObject(initial);
     host.emit('start_game', 'authority-test', { ...initial, turn: 999 });
     expect((await snapshot(host)).gameState.turn).toBe(1);
     outsider.emit('update_game_state', 'authority-test', { ...initial, turn: 999 });
@@ -39,10 +39,25 @@ test('only the host starts and only joined non-spectators update a room', async 
     expect((await snapshot(spectator)).gameState.turn).toBe(1);
     host.emit('update_game_state', 'authority-test', { ...initial, turn: 2 });
     expect((await snapshot(host)).gameState.turn).toBe(2);
+    const base = { ...(await snapshot(host)).gameState, turn: 3, phase: 'main', currentPlayerIndex: 1,
+      hasRolled: false, dice: [0, 0], robberHexId: 'old', pirateHexId: null };
+    host.emit('update_game_state', 'authority-test', base);
+    await expect.poll(async () => (await snapshot(host)).gameState.turn).toBe(3);
+    host.emit('update_game_state', 'authority-test', { ...base, hasRolled: true, dice: [2, 3] });
+    await expect.poll(async () => (await snapshot(host)).gameState.dice).toEqual([2, 3]);
+    host.emit('update_game_state', 'authority-test', { ...base, hasRolled: true, dice: [6, 6] });
+    await expect.poll(async () => (await snapshot(host)).gameState.dice).toEqual([2, 3]);
+    const robber = { ...(await snapshot(host)).gameState, phase: 'robber' };
+    host.emit('update_game_state', 'authority-test', robber);
+    await expect.poll(async () => (await snapshot(host)).gameState.phase).toBe('robber');
+    host.emit('update_game_state', 'authority-test', { ...robber, phase: 'main', robberHexId: 'first' });
+    await expect.poll(async () => (await snapshot(host)).gameState.robberHexId).toBe('first');
+    host.emit('update_game_state', 'authority-test', { ...robber, phase: 'main', robberHexId: 'second' });
+    await expect.poll(async () => (await snapshot(host)).gameState.robberHexId).toBe('first');
     // A stale player entry must not override a socket's explicit spectator membership.
     host.emit('join_room', 'authority-test', 'host-as-spectator', 'Observer', true);
     expect((await snapshot(host)).spectators).toHaveLength(2);
     host.emit('update_game_state', 'authority-test', { ...initial, turn: 999 });
-    expect((await snapshot(host)).gameState.turn).toBe(2);
+    expect((await snapshot(host)).gameState.turn).toBe(3);
   } finally { clients.forEach(socket => socket.disconnect()); }
 });

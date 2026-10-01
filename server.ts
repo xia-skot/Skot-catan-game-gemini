@@ -17,7 +17,8 @@ import { LEADERBOARD_SCORING_VERSION } from './shared/leaderboard';
 import assetManifest from './src/assetManifest.json';
 import { applySettingsPatch, getRoomController, getSetupSlots } from './shared/roomSetup';
 import { normalizeBotDifficulty } from './shared/botDifficulty';
-import { computeLeaderboardUserStats } from './server/leaderboard';
+import { canAcceptCriticalGameTransition } from './shared/criticalGameTransition';
+import { computeLeaderboardUserStats, repairLegacySeatAttribution } from './server/leaderboard';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from './server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from './server/leaderboardDemo';
 import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from './server/leaderboardRecording';
@@ -941,9 +942,10 @@ async function startServer() {
         .sort({ completedAt: -1 })
         .limit(200)
         .toArray();
-      
-      const stats = computeUserGameStats(games, username);
-      res.json({ games, stats });
+      const accounts = usersCollection ? await usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray() : [];
+      const attributedGames = games.map((game: any) => repairLegacySeatAttribution(game, accounts));
+      const stats = computeUserGameStats(attributedGames, username);
+      res.json({ games: attributedGames, stats });
     } catch (err) {
       console.error('Fetch admin user games error', err);
       res.status(500).json({ error: '获取战绩失败' });
@@ -1059,9 +1061,10 @@ async function startServer() {
         .sort({ completedAt: -1 })
         .limit(200)
         .toArray();
-        
-      const stats = computeUserGameStats(games, username);
-      res.json({ games, stats });
+      const accounts = usersCollection ? await usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray() : [];
+      const attributedGames = games.map((game: any) => repairLegacySeatAttribution(game, accounts));
+      const stats = computeUserGameStats(attributedGames, username);
+      res.json({ games: attributedGames, stats });
     } catch (err) {
       console.error('Fetch user games error', err);
       res.status(500).json({ error: '获取战绩失败' });
@@ -1543,6 +1546,11 @@ async function startServer() {
       const isSpectatorSocket = room.spectators?.some((s: any) => s.socketId === socket.id || s.id === socket.id);
       if (isSpectatorSocket) return;
       const previousState = room.gameState;
+      const actor = room.players.find((player: any) => player.socketId === socket.id);
+      if (!canAcceptCriticalGameTransition(previousState, gameState, actor.id, getRoomController(room))) {
+        socket.emit('game_state_updated', previousState);
+        return;
+      }
       observeLeaderboardGame(room, gameState);
       // Commit the in-memory transition before awaiting persistence, so two winner updates cannot insert twice.
       room.gameState = gameState;
@@ -1575,6 +1583,7 @@ async function startServer() {
                    return {
                      id: p.id,
                      name: p.name,
+                     sessionId: p.sessionId,
                      isBot: p.isBot,
                      score: totalScore,
                      breakdown: {
