@@ -107,6 +107,7 @@ export function persistLeaderboardResult(room: object, gameRecord: Record<string
     observeLeaderboardGame(room, gameRecord, now);
     const clock = recording.clock;
     const result: Record<string, any> = structuredClone({ ...gameRecord, gameId: recording.gameId, identityVersion: clock ? 2 : 1,
+      accountBindingVersion: clock ? 1 : undefined,
       durationMs: clock ? (clock.finishedAt ?? clock.observedAt) - clock.startedAt : undefined,
       players: gameRecord.players.map((player: any, index: number) => ({ ...player, ...identities[index], id: player.id,
         autoplayMs: clock ? clock.elapsed.get(identities[index].sessionId!) || 0 : undefined })) });

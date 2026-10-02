@@ -32,12 +32,11 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   });
   app.post('/api/login', (_req, res) => res.json(session()));
   app.get('/api/about', (_req, res) => res.json({ content: '卡坦岛 · 本地演示', updatedAt: new Date().toISOString() }));
-  app.get('/api/user/games', (_req, res) => res.json({ games: [], stats: { totalGames: 0, wins: 0, winRate: 0 } }));
   app.get('/api/maps', (_req, res) => res.json({ maps: [] }));
   app.get('/api/feedback/prompt', (_req, res) => res.json({ prompt: '演示反馈' }));
   app.post('/api/feedback', (_req, res) => res.json({ success: true }));
   app.use('/api', (req, res, next) => {
-    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats', '/admin/gateway'];
+    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats', '/admin/gateway', '/admin/analytics', '/admin/guests', '/admin/database-storage', '/user/games', '/admin/user'];
     if (allowed.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'))) return next();
     res.status(403).json({ error: '此操作不在本地演示范围内' });
   });

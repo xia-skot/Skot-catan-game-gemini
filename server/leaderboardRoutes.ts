@@ -1,5 +1,5 @@
 import type { Express, RequestHandler } from 'express';
-import { buildMonthlyLeaderboard } from './leaderboard';
+import { buildAccountGameHistory, buildMonthlyLeaderboard } from './leaderboard';
 import { DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, monthBounds, shanghaiMonth } from '../shared/leaderboard';
 
 export interface LeaderboardStore {
@@ -18,7 +18,7 @@ export function mongoLeaderboardStore(getCollections: () => { games: any; users:
     async readRecords() {
       const { games, users } = collections();
       const [gameRecords, userRecords] = await Promise.all([
-        games.find({}).project({ gameId: 1, identityVersion: 1, scoringVersion: 1, roomId: 1, players: 1, winnerId: 1, turnCount: 1, mapType: 1, completedAt: 1, phase: 1, durationMs: 1 }).toArray(),
+        games.find({}).project({ gameId: 1, identityVersion: 1, accountBindingVersion: 1, scoringVersion: 1, roomId: 1, players: 1, winnerId: 1, turnCount: 1, mapType: 1, completedAt: 1, phase: 1, durationMs: 1 }).toArray(),
         users.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray(),
       ]);
       return { games: gameRecords, users: userRecords };
@@ -36,6 +36,35 @@ export function mongoLeaderboardStore(getCollections: () => { games: any; users:
 
 export function registerLeaderboardRoutes(app: Express, authenticate: RequestHandler,
   requireAdmin: RequestHandler, store: LeaderboardStore, now = () => Date.now()) {
+  app.get('/api/user/games', authenticate, async (req, res) => {
+    try {
+      const { games, users } = await store.readRecords();
+      const userId = String((req as any).user.userId || '');
+      const account = users.find(user => String(user._id) === userId);
+      if (!account) return res.status(404).json({ error: '账号不存在' });
+      if (account.isGuest !== false || account.role === 'guest') return res.status(403).json({ error: '游客无法查阅战绩，请注册正式账号' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(buildAccountGameHistory(games, users, userId, now()));
+    } catch (error) {
+      console.error('Read game history failed', error);
+      res.status(503).json({ error: '历史战绩暂时不可用，请稍后重试' });
+    }
+  });
+  app.get('/api/admin/user/:username/games', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { games, users } = await store.readRecords();
+      const accounts = users.filter(user => user.isGuest === false && user.role !== 'guest' && (req.query.userId
+        ? String(user._id) === req.query.userId
+        : user.username?.trim().toLowerCase() === req.params.username.trim().toLowerCase()));
+      if (accounts.length > 1) return res.status(409).json({ error: '存在同名账号，请通过账号编号查看战绩' });
+      if (!accounts.length) return res.status(404).json({ error: '注册账号不存在' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(buildAccountGameHistory(games, users, String(accounts[0]._id), now()));
+    } catch (error) {
+      console.error('Read admin game history failed', error);
+      res.status(503).json({ error: '历史战绩暂时不可用，请稍后重试' });
+    }
+  });
   const topCount = async () => {
     const stored = await store.readTopCount();
     return isLeaderboardTopCount(stored) ? stored : DEFAULT_LEADERBOARD_TOP_COUNT;

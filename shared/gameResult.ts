@@ -1,3 +1,5 @@
+import { LEADERBOARD_SCORING_VERSION } from './leaderboard';
+
 interface ResultPlayer {
   id?: unknown;
   isBot?: boolean;
@@ -29,16 +31,17 @@ export function resultRankPoints(players: readonly ResultPlayer[], player: Resul
   const higher = participants.filter(other => recordedPlayerScore(other)! > score).length;
   const isBot = (entry: ResultPlayer) => entry.isOriginalBot ?? entry.isBot ?? false;
   const humans = participants.filter(other => !isBot(other)).length;
+  const higherHumans = participants.filter(other => !isBot(other) && recordedPlayerScore(other)! > score).length;
   const excessiveAutoplay = typeof game.durationMs === 'number' && Number.isFinite(game.durationMs) && game.durationMs > 0 &&
     typeof player.autoplayMs === 'number' && Number.isFinite(player.autoplayMs) && player.autoplayMs > game.durationMs / 2;
   const soloLoss = humans === 1 && game.winnerId != null && String(player.id) !== String(game.winnerId);
-  return { rank: higher + 1, points: isBot(player) || excessiveAutoplay || soloLoss ? 0 : Math.max(0, humans - higher) };
+  return { rank: higher + 1, points: isBot(player) || excessiveAutoplay || soloLoss ? 0 : Math.max(0, humans - higherHumans) };
 }
 
 export function storedResultRankPoints(players: readonly ResultPlayer[], player: ResultPlayer,
   game: { durationMs?: unknown; winnerId?: unknown; scoringVersion?: unknown } = {}): { rank: number; points: number } {
   const award = player.rankAward;
-  if (game.scoringVersion === 'rank-points-v18' && award &&
+  if (game.scoringVersion === LEADERBOARD_SCORING_VERSION && award &&
       Number.isSafeInteger(award.rank) && award.rank >= 1 &&
       Number.isSafeInteger(award.points) && award.points >= 0) return award;
   return resultRankPoints(players, player, game);
