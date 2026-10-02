@@ -1,0 +1,52 @@
+import { test, expect } from '@playwright/test';
+
+test('data center periods, guest search, navigation and database capacity', async ({ page }, info) => {
+  await page.goto('/?demoRole=admin');
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('heading', { name: '管理中心', exact: true }).click();
+  await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+  const panel = page.locator('[data-admin-section="analytics"]');
+  await expect(panel.locator('[data-metric="games"]')).toHaveText('3');
+  await expect(panel.locator('[data-metric="guests"]')).toHaveText('1');
+  await expect(panel.locator('tbody tr')).toHaveCount(14);
+  await panel.getByLabel('统计周期').selectOption('week');
+  await expect(panel.locator('tbody tr')).toHaveCount(12);
+  await panel.getByLabel('统计周期').selectOption('month');
+  await panel.getByLabel('统计截止日期').fill('2000-01-01');
+  await expect(panel.locator('tbody tr').first()).toContainText('2000-01-01');
+  await expect(panel.locator('tbody tr').first().locator('td').nth(1)).toHaveText('0');
+  expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('data-center.png'), fullPage: true });
+  await panel.getByRole('button', { name: '游客名单', exact: true }).click();
+  const guests = page.locator('[data-admin-section="guests"]');
+  await expect(guests.locator('[data-guest-id]')).toHaveCount(1);
+  await guests.getByLabel('搜索游客').fill('not-found');
+  await expect(guests.getByText('暂无匹配的游客')).toBeVisible();
+  await guests.getByLabel('搜索游客').fill('体验');
+  await page.screenshot({ path: info.outputPath('guest-list.png'), fullPage: true });
+  await guests.getByTitle('返回二级菜单', { exact: true }).click();
+  await expect(panel).toBeVisible();
+  await panel.getByTitle('返回二级菜单', { exact: true }).click();
+  await page.getByRole('heading', { name: '系统设置', exact: true }).click();
+  const storage = page.locator('[data-database-storage]');
+  await expect(storage.getByText('12 MiB', { exact: true })).toBeVisible();
+  await storage.getByLabel('集群容量上限（MiB）').fill('512');
+  await storage.getByRole('button', { name: '保存容量' }).click();
+  await expect(storage.getByText('500 MiB', { exact: true })).toBeVisible();
+  await storage.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('database-storage.png'), fullPage: true });
+});
+
+test('failed analytics request can retry without displaying zero totals', async ({ page }) => {
+  await page.route('**/api/admin/analytics?*', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"暂时不可用"}' }));
+  await page.goto('/?demoRole=admin');
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('heading', { name: '管理中心', exact: true }).click();
+  await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+  const panel = page.locator('[data-admin-section="analytics"]');
+  await expect(panel.getByRole('alert')).toHaveText('暂时不可用');
+  await expect(panel.locator('[data-metric="games"]')).toHaveText('—');
+  await page.unroute('**/api/admin/analytics?*');
+  await panel.getByRole('button', { name: '刷新数据' }).click();
+  await expect(panel.locator('[data-metric="games"]')).toHaveText('3');
+});

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail, ArrowUp, ArrowDown, Trophy } from 'lucide-react';
+import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail, ArrowUp, ArrowDown, Trophy, Dices, ChartNoAxesCombined, ChevronRight } from 'lucide-react';
+import { AdminDataCenter, AdminGuestList, DatabaseStorageSettings } from './AdminDataCenter';
 import { UserProfileModal } from './UserProfileModal';
 import { GatewaySettings } from './GatewaySettings';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, sortAdminPlayers, type PlayerSortField, type SortDirection } from '../../shared/leaderboard';
 
-export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' }) {
+export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests' }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,7 +28,8 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
   // Section state: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages'
-  const [activeSection, setActiveSection] = useState<'menu' | 'system' | 'users' | 'feedbacks' | 'messages'>(initialSection);
+  const [activeSection, setActiveSection] = useState<'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests'>(initialSection);
+  const [sectionParent, setSectionParent] = useState<'menu' | 'analytics'>('menu');
 
   const [inspectingUser, setInspectingUser] = useState<any | null>(null);
   const [inspectingLoading, setInspectingLoading] = useState(false);
@@ -44,7 +46,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     if (confirmDeleteId) setConfirmDeleteId(null);
     else if (inspectingUser) setInspectingUser(null);
     else if (selectedChatPlayer) setSelectedChatPlayer(null);
-    else if (activeSection !== 'menu') setActiveSection('menu');
+    else if (activeSection !== 'menu') { setActiveSection(sectionParent); setSectionParent('menu'); }
     else onClose();
     return true;
   }, 40);
@@ -326,11 +328,11 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     }
   };
 
-  const handleOpenUserProfile = async (username: string) => {
+  const handleOpenUserProfile = async (username: string, userId?: string) => {
     setInspectingLoading(true);
     try {
       const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}/info`, {
+      const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}/info${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('获取玩家信息失败');
@@ -498,6 +500,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   const renderSystemContent = () => (
     <div className="space-y-4 font-sans">
       <GatewaySettings />
+      <DatabaseStorageSettings />
       <form onSubmit={saveLeaderboardSettings} className="space-y-3 border-b border-slate-200 pb-4">
         <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700"><Trophy size={14} className="text-amber-600" />月度排行榜</h4>
         <div className="flex flex-wrap items-center gap-3">
@@ -661,6 +664,16 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Sub-View 2: 玩家名单
   const renderUsersContent = () => (
     <div className="space-y-3 font-sans">
+      <dl data-admin-player-totals className="grid grid-cols-2 gap-4 border-b border-slate-200 px-1 pb-3">
+        <div title="累计游客账号数量">
+          <dt className="flex items-center gap-1.5 text-xs text-slate-500"><User size={14} className="text-indigo-500" />游客数量</dt>
+          <dd data-admin-guest-count className="mt-1 text-xl font-bold text-slate-800 tabular-nums">{Number.isFinite(data?.stats?.guests) ? data.stats.guests.toLocaleString('zh-CN') : '未提供'}</dd>
+        </div>
+        <div title="数据库累计保存的对局数量">
+          <dt className="flex items-center gap-1.5 text-xs text-slate-500"><Dices size={14} className="text-emerald-600" />总盘数</dt>
+          <dd data-admin-game-count className="mt-1 text-xl font-bold text-slate-800 tabular-nums">{Number.isFinite(data?.stats?.games) ? data.stats.games.toLocaleString('zh-CN') : '未提供'}</dd>
+        </div>
+      </dl>
       <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-1">
         <span className="text-xs font-bold text-slate-500">共计 {(data?.allUsers || data?.latestUsers)?.length || 0} 位玩家</span>
         <div className="flex items-center gap-2">
@@ -683,7 +696,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
             <div key={u._id} className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 flex flex-wrap gap-y-2 items-center justify-between group transition-all" data-admin-player={u._id}>
               <div className="flex flex-1 items-center gap-3 min-w-0">
                 <div 
-                  onClick={() => handleOpenUserProfile(u.username)}
+                  onClick={() => handleOpenUserProfile(u.username, String(u._id))}
                   className="w-9 h-9 rounded-xl bg-indigo-100 hover:bg-indigo-200 flex items-center justify-center shrink-0 border border-indigo-200/60 cursor-pointer transition-colors"
                   title="点击查看玩家信息"
                 >
@@ -702,7 +715,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                     ) : (
                       <span 
                         className="truncate cursor-pointer hover:text-indigo-600 transition-colors"
-                        onClick={() => handleOpenUserProfile(u.username)}
+                        onClick={() => handleOpenUserProfile(u.username, String(u._id))}
                         title="点击查看玩家战绩"
                       >
                         {u.username}
@@ -1007,6 +1020,12 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Menu List: Secondary Level Menu items styled identically to First Level Menu
   const renderSecondaryMenuList = () => (
     <div className="space-y-3 font-sans">
+      <button onClick={() => setActiveSection('analytics')} className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 text-left shadow-sm hover:border-emerald-200">
+        <ChartNoAxesCombined size={18} className="text-emerald-600" /><h3 className="text-sm font-bold text-slate-700">数据中心</h3><ChevronRight size={18} className="ml-auto text-slate-300" />
+      </button>
+      <button onClick={() => setActiveSection('guests')} className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 text-left shadow-sm hover:border-indigo-200">
+        <User size={18} className="text-slate-400" /><h3 className="text-sm font-bold text-slate-700">游客名单</h3><ChevronRight size={18} className="ml-auto text-slate-300" />
+      </button>
       {/* 1. 系统设置 */}
       <button 
         onClick={() => setActiveSection('system')} 
@@ -1150,6 +1169,8 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                         <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
                           {activeSection === 'system' && <><Sliders size={18} className="text-indigo-500" /> 系统设置</>}
                           {activeSection === 'users' && <><Users size={18} className="text-indigo-500" /> 玩家名单</>}
+                          {activeSection === 'analytics' && <><ChartNoAxesCombined size={18} className="text-emerald-600" /> 数据中心</>}
+                          {activeSection === 'guests' && <><User size={18} className="text-indigo-500" /> 游客名单</>}
                           {activeSection === 'messages' && <><Mail size={18} className="text-sky-500" /> 玩家私信管理</>}
                           {activeSection === 'feedbacks' && <><MessageSquare size={18} className="text-indigo-500" /> 玩家反馈意见</>}
                         </h3>
@@ -1175,6 +1196,8 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
 
                     {activeSection === 'system' && renderSystemContent()}
                     {activeSection === 'users' && renderUsersContent()}
+                    {activeSection === 'analytics' && <AdminDataCenter onUsers={() => { setSectionParent('analytics'); setActiveSection('users'); }} onGuests={() => { setSectionParent('analytics'); setActiveSection('guests'); }} />}
+                    {activeSection === 'guests' && <AdminGuestList />}
                     {activeSection === 'messages' && renderMessagesContent()}
                     {activeSection === 'feedbacks' && renderFeedbacksContent()}
                   </motion.div>

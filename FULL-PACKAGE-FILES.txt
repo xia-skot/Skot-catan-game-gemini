@@ -82,13 +82,17 @@ scripts/prepare-original-icons.ps1
 scripts/sync-assets.mjs
 scripts/sync-assets.ps1
 server.ts
+server/analytics.ts
+server/analyticsRoutes.ts
 server/announcementRoutes.ts
+server/databaseStorage.ts
 server/gatewayRoutes.ts
 server/leaderboard.ts
 server/leaderboardDemo.ts
 server/leaderboardRecording.ts
 server/leaderboardRoutes.ts
 server/messageRoutes.ts
+server/socketIdentity.ts
 shared/botDifficulty.ts
 shared/criticalGameTransition.ts
 shared/gameResult.ts
@@ -102,6 +106,7 @@ src/assetPreloader.ts
 src/audioService.ts
 src/botStrategy.ts
 src/components/AdminDashboard.tsx
+src/components/AdminDataCenter.tsx
 src/components/AssetGate.tsx
 src/components/ErrorBoundary.tsx
 src/components/GameOverModal.tsx
@@ -142,6 +147,8 @@ src/types.ts
 src/useCatanGame.ts
 src/useLobbySwipe.ts
 src/vite-env.d.ts
+tests/analytics-ui.spec.ts
+tests/analytics.test.ts
 tests/announcement-editing.test.ts
 tests/announcements-v14.spec.ts
 tests/bandwidth.test.ts
@@ -152,6 +159,7 @@ tests/entry-icon-v19.spec.ts
 tests/gateway-bandwidth-ui.mjs
 tests/gateway-v15.spec.ts
 tests/gateway.test.ts
+tests/history-ledger-v19.spec.ts
 tests/leaderboard-ui.spec.ts
 tests/leaderboard.test.ts
 tests/messages.spec.ts
@@ -165,6 +173,7 @@ tests/refinements-v13.spec.ts
 tests/rising-sea.spec.ts
 tests/room-authority-v6.spec.ts
 tests/slow-assets.spec.ts
+tests/spectator-exit-v21.spec.ts
 tests/startup-navigation.spec.ts
 tests/startup-v10.spec.ts
 tests/startup-v9.spec.ts

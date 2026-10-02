@@ -111,6 +111,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
   const [games, setGames] = useState<any[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
+  const [gamesError, setGamesError] = useState('');
   const [serverStats, setServerStats] = useState<{ totalGames: number; wins: number; winRate: number } | null>(null);
 
   const [saves, setSaves] = useState<any[]>([]);
@@ -677,25 +678,32 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   useEffect(() => {
     setGames([]);
     setServerStats(null);
+    setGamesError('');
     if (!currentUser?.username) return;
     
     setGamesLoading(true);
     const token = localStorage.getItem('catan_auth_token');
+    const controller = new AbortController();
     const fetchUrl = currentUser.isViewingAsAdmin
-      ? `/api/admin/user/${encodeURIComponent(currentUser.username)}/games`
+      ? `/api/admin/user/${encodeURIComponent(currentUser.username)}/games${currentUser.id ? `?userId=${encodeURIComponent(currentUser.id)}` : ''}`
       : '/api/user/games';
       
     fetch(fetchUrl, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` }, signal: controller.signal
     })
-    .then(res => res.ok && res.headers.get('content-type')?.includes('application/json') ? res.json() : null)
+    .then(async res => {
+      if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) throw new Error('历史战绩读取失败，请重新进入此页面');
+      return res.json();
+    })
     .then(data => {
+      if (controller.signal.aborted) return;
       if (data?.games) setGames(data.games);
       if (data?.stats) setServerStats(data.stats);
     })
-    .catch(() => {})
-    .finally(() => setGamesLoading(false));
-  }, [currentUser?.username]);
+    .catch(error => { if (!controller.signal.aborted) setGamesError(error.message || '历史战绩读取失败'); })
+    .finally(() => { if (!controller.signal.aborted) setGamesLoading(false); });
+    return () => controller.abort();
+  }, [currentUser?.id, currentUser?.username, currentUser?.isViewingAsAdmin, activeView === 'history']);
 
   const fetchSaves = async () => {
     if (currentUser?.role !== 'admin') return;
@@ -826,6 +834,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   };
 
   const isGameWin = (g: any, username?: string) => {
+    if (g?.viewerPlayerId != null) return String(g.viewerPlayerId) === String(g.winnerId);
     if (!g || !username || !g.players) return false;
     const cleanUser = username.trim().toLowerCase();
     if (g.winnerId !== undefined && g.winnerId !== null) {
@@ -1311,15 +1320,11 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                 </h3>
                   
                 <div className="flex flex-col">
-                  {currentUser.isGuest ? (
-                    <div className="py-8 text-center text-slate-400 text-xs font-medium">
-                      游客无法查阅战绩，请注册正式账号。
-                    </div>
-                  ) : gamesLoading ? (
+                  {currentUser.isGuest ? <div className="text-center text-slate-400 py-8">游客无法查阅战绩，请注册正式账号。</div> : gamesLoading ? (
                     <div className="py-8 flex justify-center text-slate-400">
                       <Loader2 className="w-6 h-6 animate-spin" />
                     </div>
-                  ) : games.length === 0 ? (
+                  ) : gamesError ? <p role="alert" className="py-8 text-center text-sm text-red-600">{gamesError}</p> : games.length === 0 ? (
                     <div className="py-8 text-center text-slate-400 text-xs font-medium border-2 border-dashed border-slate-100 rounded-2xl">
                       暂无历史战绩
                     </div>
@@ -1334,10 +1339,10 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         <div key={i} className="py-4 border-b border-slate-100 last:border-b-0 flex flex-col gap-2 relative group">
                           <div className="flex items-center gap-3 flex-wrap text-[10px] text-slate-400 mb-1">
                             <span className="font-bold text-slate-600">ID: {g.roomId}</span>
-                            <span className="font-mono">{new Date(g.completedAt).toLocaleDateString('zh-CN')}</span>
+                            <span className="font-mono">{new Date(g.completedAt).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}</span>
                             {isWin && <Trophy size={12} className="text-yellow-500" />}
                           </div>
-                          
+                          {g.rankingStatus === 'pending' && <p role="status" className="text-xs text-amber-700">{g.rankingReason}，暂未计入月榜。</p>}
                           {/* Scrolling Table */}
                           <div className="overflow-x-auto pb-2 -mx-2 px-2">
                             <table className="w-full text-left border-collapse text-xs [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-1 [&_td]:px-1">
@@ -1375,7 +1380,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                                       <td className="py-2 px-2 text-center">{p.breakdown?.largestArmy ? 2 : 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.vpCards || 0}</td>
                                       <td className="py-2 px-2 text-center">{p.breakdown?.islandBonus || 0}</td>
-                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{storedResultRankPoints(sortedPlayers, p, g).points}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-emerald-700">{g.resultValid === false ? '待核对' : storedResultRankPoints(sortedPlayers, p, g).points}</td>
                                     </tr>
                                   );
                                 })}

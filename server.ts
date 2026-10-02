@@ -18,10 +18,13 @@ import assetManifest from './src/assetManifest.json';
 import { applySettingsPatch, getRoomController, getSetupSlots } from './shared/roomSetup';
 import { normalizeBotDifficulty } from './shared/botDifficulty';
 import { canAcceptCriticalGameTransition } from './shared/criticalGameTransition';
-import { computeLeaderboardUserStats, repairLegacySeatAttribution } from './server/leaderboard';
+import { computeLeaderboardUserStats } from './server/leaderboard';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from './server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from './server/leaderboardDemo';
 import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from './server/leaderboardRecording';
+import { verifiedRoomIdentity } from './server/socketIdentity';
+import { registerAnalyticsRoutes } from './server/analyticsRoutes';
+import { queryDatabaseStorage } from './server/databaseStorage';
 const DEMO_MODE = process.argv.includes('--demo');
 
 dotenv.config();
@@ -168,6 +171,43 @@ async function startServer() {
   });
 
   // API routes FIRST
+  let demoCapacity: number | null = null;
+  let storageCache: { time: number; value: Awaited<ReturnType<typeof queryDatabaseStorage>> } | null = null;
+  let pendingStorage: Promise<Awaited<ReturnType<typeof queryDatabaseStorage>>> | null = null;
+  registerAnalyticsRoutes(app, authMiddleware, adminMiddleware, {
+    readRecords: async () => {
+      if (demoLeaderboard) {
+        const records = await demoLeaderboard.store.readRecords();
+        return { ...records, users: [...records.users, { _id: 'demo-guest-1', username: '体验游客', isGuest: true, createdAt: new Date() }] };
+      }
+      if (!usersCollection || !gamesCollection) throw new Error('Database unavailable');
+      const [users, games] = await Promise.all([
+        usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray(),
+        gamesCollection.find({}).project({ _id: 1, gameId: 1, completedAt: 1, phase: 1 }).toArray(),
+      ]);
+      return { users, games };
+    },
+    readCapacity: async () => {
+      if (DEMO_MODE) return demoCapacity;
+      if (!aboutCollection) throw new Error('Database unavailable');
+      const value = (await aboutCollection.findOne({ _id: 'database_capacity' }))?.bytes;
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    },
+    writeCapacity: async bytes => {
+      if (DEMO_MODE) { demoCapacity = bytes; return; }
+      if (!aboutCollection) throw new Error('Database unavailable');
+      await aboutCollection.updateOne({ _id: 'database_capacity' }, { $set: { bytes } }, { upsert: true });
+    },
+    readStorage: async () => {
+      if (DEMO_MODE) return { usedBytes: 12 * 1024 * 1024, scope: 'cluster', dataBytes: 10 * 1024 * 1024, indexBytes: 2 * 1024 * 1024 };
+      if (!MONGODB_URI) throw new Error('Database unavailable');
+      if (storageCache && Date.now() - storageCache.time < 60000) return storageCache.value;
+      if (!pendingStorage) pendingStorage = queryDatabaseStorage(MONGODB_URI).then(value => {
+        storageCache = { time: Date.now(), value }; return value;
+      }).finally(() => { pendingStorage = null; });
+      return pendingStorage;
+    },
+  });
   registerGatewayRoutes(app, authMiddleware, adminMiddleware, { demo: DEMO_MODE,
     url: process.env.GATEWAY_URL, token: process.env.GATEWAY_ADMIN_TOKEN });
   registerLeaderboardRoutes(app, authMiddleware, adminMiddleware, demoLeaderboard?.store || mongoLeaderboardStore(() => ({
@@ -176,7 +216,7 @@ async function startServer() {
   if (demoLeaderboard) app.get('/api/admin/stats', authMiddleware, adminMiddleware, (_req, res) => res.json(demoLeaderboard.stats()));
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ status: 'ok', version: 'v17', scoringVersion: LEADERBOARD_SCORING_VERSION });
+    res.json({ status: 'ok', version: 'v24', scoringVersion: LEADERBOARD_SCORING_VERSION, historyVersion: 'account-history-v20' });
   });
 
   app.get('/api/db-status', (req, res) => {
@@ -931,38 +971,24 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin/user/:username/games', authMiddleware, adminMiddleware, async (req, res) => {
-    try {
-      if (!gamesCollection) return res.status(500).json({ error: '数据库未连接' });
-      const { username } = req.params;
-      
-      const games = await gamesCollection.find({ 
-        "players.name": { $regex: new RegExp(`^${username.trim()}$`, 'i') } 
-      })
-        .sort({ completedAt: -1 })
-        .limit(200)
-        .toArray();
-      const accounts = usersCollection ? await usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray() : [];
-      const attributedGames = games.map((game: any) => repairLegacySeatAttribution(game, accounts));
-      const stats = computeUserGameStats(attributedGames, username);
-      res.json({ games: attributedGames, stats });
-    } catch (err) {
-      console.error('Fetch admin user games error', err);
-      res.status(500).json({ error: '获取战绩失败' });
-    }
-  });
 
   app.get('/api/admin/user/:username/info', authMiddleware, adminMiddleware, async (req, res) => {
     try {
       if (!usersCollection) return res.status(500).json({ error: '数据库未连接' });
       const { username } = req.params;
       
-      const user = await usersCollection.findOne({ username }, { projection: { password: 0 } });
+      if (req.query.userId && (typeof req.query.userId !== 'string' || !ObjectId.isValid(req.query.userId))) {
+        return res.status(400).json({ error: '账号编号无效' });
+      }
+      const candidates = await usersCollection.find(req.query.userId
+        ? { _id: new ObjectId(String(req.query.userId)) } : { username }).project({ password: 0 }).limit(2).toArray();
+      if (candidates.length > 1) return res.status(409).json({ error: '存在同名账号，请通过账号编号查看资料' });
+      const user = candidates[0];
       if (!user) {
         return res.json({ user: { username, isGuest: true, email: '临时游客/AI玩家' } });
       }
       
-      res.json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, isGuest: false } });
+      res.json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, isGuest: user.isGuest === true } });
     } catch (err) {
       console.error('Fetch admin user info error', err);
       res.status(500).json({ error: '获取玩家信息失败' });
@@ -1050,26 +1076,6 @@ async function startServer() {
     } catch { res.status(400).send('Invalid asset URL'); }
   });
 
-  app.get('/api/user/games', authMiddleware, async (req, res) => {
-    try {
-      if (!gamesCollection) return res.status(500).json({ error: '数据库未连接' });
-      const username = (req as any).user.username;
-      
-      const games = await gamesCollection.find({ 
-        "players.name": { $regex: new RegExp(`^${username.trim()}$`, 'i') } 
-      })
-        .sort({ completedAt: -1 })
-        .limit(200)
-        .toArray();
-      const accounts = usersCollection ? await usersCollection.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray() : [];
-      const attributedGames = games.map((game: any) => repairLegacySeatAttribution(game, accounts));
-      const stats = computeUserGameStats(attributedGames, username);
-      res.json({ games: attributedGames, stats });
-    } catch (err) {
-      console.error('Fetch user games error', err);
-      res.status(500).json({ error: '获取战绩失败' });
-    }
-  });
 
   // ========== MAPS ARCHIVE ROUTES ==========
   app.get('/api/maps', async (req, res) => {
@@ -1340,11 +1346,12 @@ async function startServer() {
     });
 
     socket.on('join_room', (roomId: string, playerId: string, playerName: string, asSpectator?: boolean, authToken?: string) => {
-      let verifiedUserId: string | undefined;
-      try {
-        const identity = jwt.verify(authToken || '', JWT_SECRET) as any;
-        if (identity.userId === playerId && !identity.isGuest && identity.role !== 'guest') verifiedUserId = identity.userId;
-      } catch { /* Legacy clients can play, but cannot claim a ranked account. */ }
+      const identity = verifiedRoomIdentity(authToken, playerId, JWT_SECRET);
+      if (!identity && !DEMO_MODE) {
+        socket.emit('join_error', '登录状态已失效或页面版本过旧，请刷新页面并重新登录后进入房间。');
+        return;
+      }
+      const verifiedUserId = identity?.userId;
       touchRoom(roomId);
       if (!playerId) playerId = socket.id;
       if (!playerName) playerName = '玩家';
@@ -1399,7 +1406,9 @@ async function startServer() {
       }
       
       const joinedPlayer = room.players.find((p: any) => p.id === playerId);
-      if (joinedPlayer) joinedPlayer.userId = verifiedUserId;
+      if (joinedPlayer) {
+        joinedPlayer.userId = verifiedUserId;
+      }
 
       // Fallback: if server thinks current host is a bot or missing
       const currentHost = room.players.find((p: any) => p.id === room.hostId);
@@ -1414,7 +1423,7 @@ async function startServer() {
       io.to(roomId).emit('room_state', room);
       
       if (room.gameState) {
-        socket.emit('game_init', room.gameState, { entry: returningParticipant ? 'resume' : 'start' });
+        socket.emit('game_init', room.gameState, { entry: returningParticipant ? 'resume' : 'start', roomId });
       }
     });
 
@@ -1548,13 +1557,13 @@ async function startServer() {
       const previousState = room.gameState;
       const actor = room.players.find((player: any) => player.socketId === socket.id);
       if (!canAcceptCriticalGameTransition(previousState, gameState, actor.id, getRoomController(room))) {
-        socket.emit('game_state_updated', previousState);
+        socket.emit('game_state_updated', previousState, { roomId });
         return;
       }
       observeLeaderboardGame(room, gameState);
       // Commit the in-memory transition before awaiting persistence, so two winner updates cannot insert twice.
       room.gameState = gameState;
-      socket.broadcast.to(roomId).emit('game_state_updated', gameState);
+      socket.broadcast.to(roomId).emit('game_state_updated', gameState, { roomId });
       if (room) {
         touchRoom(roomId);
 
@@ -1632,7 +1641,7 @@ async function startServer() {
             if (!offer.rejectedBy.includes(playerId)) offer.rejectedBy.push(playerId);
             offer.acceptedBy = offer.acceptedBy.filter((id: number) => id !== playerId);
           }
-          io.to(roomId).emit('game_state_updated', room.gameState);
+          io.to(roomId).emit('game_state_updated', room.gameState, { roomId });
         }
       }
     });
@@ -1667,7 +1676,7 @@ async function startServer() {
 
         offer.status = 'completed';
         offer.completedWith = partnerId;
-        io.to(roomId).emit('game_state_updated', room.gameState);
+        io.to(roomId).emit('game_state_updated', room.gameState, { roomId });
       }
     });
 
@@ -1675,7 +1684,7 @@ async function startServer() {
       const room = rooms.get(roomId);
       if (room && room.gameState) {
         // Send the cached game state only to the player who requested it
-        socket.emit('game_state_updated', room.gameState);
+        socket.emit('game_state_updated', room.gameState, { roomId });
         socket.emit('room_state', room);
       }
     });
@@ -1709,7 +1718,7 @@ async function startServer() {
           }
           
           io.to(roomId).emit('room_state', room);
-          io.to(roomId).emit('game_state_updated', room.gameState);
+          io.to(roomId).emit('game_state_updated', room.gameState, { roomId });
         }
       }
     });
@@ -1724,7 +1733,7 @@ async function startServer() {
         ...player,
         botDifficulty: configured[index]?.isBot ? normalizeBotDifficulty(room.settings.botDifficulties?.[configured[index].index]) : 'expert',
       }));
-      io.to(roomId).emit('game_init', initialGameState, { entry: 'start' });
+      io.to(roomId).emit('game_init', initialGameState, { entry: 'start', roomId });
     });
 
     socket.on('return_to_lobby', (roomId: string, playerId: string) => {

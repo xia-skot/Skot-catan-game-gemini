@@ -799,6 +799,9 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
   const handleReturnToLobby = (e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
+    isAutoReconnectingRef.current = false;
+    gameStartedRef.current = false;
+    isJoinedLobbyRef.current = false;
     
     // Instantly interrupt and stop all audio/SFX
     audioService.stopAllSfx();
@@ -810,7 +813,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
     let keepGameActive = false;
     
     // Determine the state based on the current context
-    if (gameState?.winnerId !== null && gameState?.winnerId !== undefined) {
+    if (!isSpectator && !isJoinSpectator && gameState?.winnerId !== null && gameState?.winnerId !== undefined) {
       // Game ended: Refresh room code
       clearRoom = true;
       socketService.resetGame(roomId);
@@ -1080,6 +1083,12 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       setInputRoomId(roomParam);
     }
     
+    socketService.onJoinError((message: string) => {
+      isAutoReconnectingRef.current = false;
+      setIsJoinedLobby(false);
+      setShowSailingScreen(false);
+      alert(message);
+    });
     socketService.onRoomState((state: any) => {
       if (!state) {
         // If we are currently in an auto-reconnect attempt, don't clear the UI immediately
@@ -1311,6 +1320,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       }
       // Wait a tiny bit for UI state to settle before joining, so socket uses correct ID
       setTimeout(() => {
+        if (!isAutoReconnectingRef.current) return;
         const asSpec = localStorage.getItem('catan_is_spectator') === 'true';
         socketService.joinRoom(roomIdToJoin, playerName, asSpec);
         isAutoReconnectingRef.current = false;
@@ -1945,7 +1955,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       setIsConnected(connected);
       if (reconnected && isJoinedLobby && !isAuthLoading && currentUser) {
         const roomId = roomState?.roomId || inputRoomId;
-        if (roomId) {
+        if (roomId && socketService.hasRoomIntent(roomId)) {
           console.log('[App] Reconnected, rejoining room:', roomId);
           const asSpec = localStorage.getItem('catan_is_spectator') === 'true';
           socketService.joinRoom(roomId, playerName, asSpec);

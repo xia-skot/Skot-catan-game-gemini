@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import type { AddressInfo } from 'node:net';
-import { buildMonthlyLeaderboard, computeLeaderboardUserStats, eligibleLeaderboardGames, repairLegacySeatAttribution } from '../server/leaderboard';
+import { buildAccountGameHistory, buildMonthlyLeaderboard, computeLeaderboardUserStats, eligibleLeaderboardGames, repairLegacySeatAttribution } from '../server/leaderboard';
 import { beginLeaderboardGame, observeLeaderboardGame, hasUnsavedLeaderboardResult, persistLeaderboardResult } from '../server/leaderboardRecording';
 import { resultRankPoints, storedResultRankPoints } from '../shared/gameResult';
 import { canAcceptCriticalGameTransition } from '../shared/criticalGameTransition';
 import { mongoLeaderboardStore, registerLeaderboardRoutes } from '../server/leaderboardRoutes';
 import { createDemoLeaderboardStore } from '../server/leaderboardDemo';
+import { verifiedRoomIdentity } from '../server/socketIdentity';
 import { monthBounds, shanghaiMonth, shiftMonth, sortAdminPlayers } from '../shared/leaderboard';
 
 const NOW = Date.parse('2026-09-29T04:00:00Z');
@@ -31,7 +32,7 @@ test('legacy score breakdowns and history award the same monthly points', () => 
   const response = buildMonthlyLeaderboard(records, users, '2026-09', 20, NOW, '0');
   assert.deepEqual(response.myGames?.map(game => game.points), [1, 1, 1]);
   assert.equal(response.myGames?.reduce((sum, game) => sum + game.points, 0), row.points);
-  assert.equal(response.scoringVersion, 'rank-points-v18');
+  assert.equal(response.scoringVersion, 'human-rank-points-v22');
 });
 
 test('a corrected complete breakdown governs ranking while malformed details cannot inflate a score', () => {
@@ -50,17 +51,79 @@ test('N - strictly higher participants awards tied high positions, and monthly r
   assert.equal(result.source, 'stored-client-results');
 });
 
-test('AI count toward rank but not the human cap; guests have no entries and spectators never count', () => {
+test('AI keep their overall rank but do not reduce human awards; guests and spectators never receive leaderboard entries', () => {
   const record = game();
   record.players[0].isBot = true;
   const accounts = users.map(user => user._id === '1' ? { ...user, isGuest: true } : user);
   record.players.push({ id: 99, name: 'Observer', isBot: false, score: 99, isSpectator: true } as any);
   const result = board([record], accounts);
-  assert.deepEqual(result.entries.map(row => [row.userId, row.points]), [['2', 2], ['3', 0]]);
+  assert.deepEqual(result.entries.map(row => [row.userId, row.points]), [['2', 3], ['3', 1]]);
+});
+
+test('zx October history and monthly totals use the same two awards without mixing a namesake account', () => {
+  const now = Date.parse('2026-10-01T13:00:00Z');
+  const guestId = '6abe08bed82ddf96f4fa2e9f';
+  const accounts = [
+    { _id: guestId, username: 'zx', isGuest: false, createdAt: new Date('2026-09-01T00:00:00Z') },
+    { _id: 'member-zx', username: 'zx', isGuest: false, createdAt: new Date('2026-09-01T00:00:00Z') },
+    ...['snow', 'haha'].map(username => ({ _id: username, username, isGuest: false, createdAt: new Date('2026-09-01T00:00:00Z') })),
+  ];
+  const records = ['639283', '792081'].map((roomId, index) => game({
+    gameId: roomId, roomId, mapType: 'archipelago', identityVersion: 2, scoringVersion: 'rank-points-v18',
+    completedAt: new Date(`2026-10-01T${index ? '11' : '12'}:00:00Z`),
+    players: [
+      { id: 0, name: index ? 'haha' : 'snow', score: 14, userId: index ? 'haha' : 'snow', sessionId: index ? 'haha' : 'snow',
+        isOriginalBot: false, isBot: false, isGuest: false, rankAward: { rank: 1, points: 2 } },
+      { id: 1, name: 'zx', score: index ? 5 : 9, userId: guestId, sessionId: guestId,
+        isOriginalBot: false, isBot: false, isGuest: false, rankAward: { rank: 2, points: 1 } },
+    ],
+  }));
+  records.push(game({ gameId: 'namesake', roomId: 'namesake', identityVersion: 2,
+    completedAt: new Date('2026-10-01T10:00:00Z'), players: [
+      { id: 0, name: 'zx', score: 10, userId: 'member-zx', isOriginalBot: false, isGuest: false },
+      { id: 1, name: 'AI', score: 5, userId: null, isOriginalBot: true, isGuest: true },
+    ] }));
+  const history = buildAccountGameHistory(records, accounts, guestId, now);
+  const monthly = buildMonthlyLeaderboard(records, accounts, '2026-10', 20, now, guestId);
+  assert.deepEqual(history.games.map(record => record.roomId), ['639283', '792081']);
+  assert.deepEqual(history.stats, { totalGames: 2, wins: 0, winRate: 0 });
+  const sum = history.games.reduce((total, record) => total + storedResultRankPoints(record.players,
+    record.players.find((player: any) => String(player.id) === record.viewerPlayerId), record).points, 0);
+  const row = monthly.entries.find(entry => entry.userId === guestId)!;
+  assert.deepEqual([sum, row.points, row.gameCount], [2, 2, 2]);
+  assert.deepEqual(monthly.myGames?.map(record => record.points), [1, 1]);
+  const namesake = monthly.entries.find(entry => entry.userId === 'member-zx')!;
+  assert.deepEqual([namesake.points, namesake.gameCount], [1, 1]);
+  assert.deepEqual(buildAccountGameHistory(records, accounts, 'member-zx', now).games.map(record => record.roomId), ['namesake']);
+  const spoofed = structuredClone(records[0]);
+  spoofed.players[1].sessionId = 'member-zx';
+  assert.equal(buildAccountGameHistory([spoofed], accounts, 'member-zx', now).games.length, 0);
+});
+
+test('history loads account-linked matches after renaming', () => {
+  const records = [game({ identityVersion: 2, gameId: 'renamed', players: game().players.map((player: any) => ({
+    ...player, userId: String(player.id), isOriginalBot: false })) })];
+  const renamed = users.map(user => ({ ...user, username: `new-${user.username}` }));
+  assert.deepEqual(buildAccountGameHistory(records, renamed, '0', NOW).stats, { totalGames: 1, wins: 1, winRate: 100 });
+});
+
+test('authenticated registered account survives recording and can collect its own solo win', async () => {
+  const { room, state } = roomAndState();
+  Object.assign(room.players[0], { userId: 'guest-id', isGuest: false });
+  state.players[0].isBot = false;
+  assert.equal(beginLeaderboardGame(room, state, 1000), true);
+  let stored: any;
+  await persistLeaderboardResult(room, game({ players: [{ ...state.players[0], score: 10 }, { ...state.players[1], score: 7 }] }),
+    { updateOne: async (_filter: any, update: any) => { stored = update.$setOnInsert; } }, 2000);
+  assert.equal(stored.players[0].userId, 'guest-id');
+  assert.equal(stored.players[0].isGuest, false);
+  const accounts = [{ ...users[0], _id: 'guest-id', isGuest: false }];
+  assert.deepEqual(board([stored], accounts).entries.map(row => [row.userId, row.points]), [['guest-id', 1]]);
+  assert.equal(buildAccountGameHistory([stored], accounts, 'guest-id', NOW).games.length, 1);
 });
 
 test('new stable IDs survive renamed users, exclude unverified users, and retain takeover humans', () => {
-  const record = game({ identityVersion: 1, gameId: 'stable' });
+  const record = game({ identityVersion: 1, accountBindingVersion: 1, gameId: 'stable' });
   record.players = record.players.map((player, index) => ({ ...player, isBot: true, isOriginalBot: false,
     userId: index < 2 ? String(index) : null, sessionId: `s${index}` }));
   const accounts = users.map(user => ({ ...user, username: `renamed-${user.username}` }));
@@ -69,14 +132,15 @@ test('new stable IDs survive renamed users, exclude unverified users, and retain
   assert.deepEqual(board([record]).entries.map(row => row.userId), ['1']);
 });
 
-test('ambiguous registered/guest names, duplicate human seats, and post-game registration get no attribution', () => {
+test('legacy fallback ignores guest namesakes, credits current members, but rejects duplicate seats and registered namesakes', () => {
   const collision = [...users, { ...users[0], _id: 'guest', username: ' a ', isGuest: true }];
-  assert.equal(board([game()], collision).entries.some(row => row.userId === '0'), false);
+  assert.equal(board([game()], collision).entries.some(row => row.userId === '0'), true);
+  assert.equal(board([game()], [...users, { ...users[0], _id: 'other-member' }]).entries.some(row => row.userId === '0'), false);
   const duplicated = game();
   duplicated.players[1].name = 'A';
   assert.equal(board([duplicated]).entries.some(row => row.userId === '0'), false);
   const tooNew = users.map(user => ({ ...user, createdAt: new Date(NOW) }));
-  assert.equal(board([game()], tooNew).entries.length, 0);
+  assert.equal(board([game()], tooNew).entries.length, 4);
 });
 
 test('explicit duplicate IDs count once, prefer earliest completion, and reject conflicting outcomes', () => {
@@ -164,7 +228,8 @@ test('noncontiguous original AI slot 3 compacts to game seat 1; runtime bot/user
   await persistLeaderboardResult(room, result, collection, 0);
   const stored = writes[0][1].$setOnInsert;
   assert.equal(stored.identityVersion, 2);
-  assert.equal(stored.scoringVersion, 'rank-points-v18');
+  assert.equal(stored.accountBindingVersion, 1);
+  assert.equal(stored.scoringVersion, 'human-rank-points-v22');
   assert.match(stored.gameId, /^[a-f0-9-]{36}$/);
   assert.equal(stored.players[0].userId, '0');
   assert.equal(stored.players[0].isOriginalBot, false);
@@ -206,7 +271,7 @@ test('captured human identity persists across runtime changes, concurrent result
   assert.equal(writes[1][1].$setOnInsert.players[0].userId, '0');
 });
 
-test('unknown sessions, swapped compact seats, restored history and unverified accounts cannot acquire identity', async () => {
+test('unknown sessions stay unverified; legacy restored records recover only unambiguous registered accounts', async () => {
   const { room, state } = roomAndState();
   assert.equal(beginLeaderboardGame(room, { players: [{ ...state.players[0], sessionId: 'foreign' }, state.players[1]] }), false);
   assert.equal(beginLeaderboardGame(room, { players: [{ ...state.players[0], id: 1 }, { ...state.players[1], id: 0 }] }), false);
@@ -218,13 +283,131 @@ test('unknown sessions, swapped compact seats, restored history and unverified a
   assert.equal(writes, 1);
   assert.equal(restored.identityVersion, 1);
   assert.equal(restored.players.every((player: any) => player.userId === null && player.isGuest === true), true);
-  assert.equal(board([restored]).entries.length, 0);
+  assert.deepEqual(board([restored]).entries.map(row => [row.userId, row.points]), [['0', 4], ['1', 3], ['2', 3], ['3', 1]]);
   delete (room.players[0] as any).userId;
   assert.equal(beginLeaderboardGame(room, state), true);
   let stored: any;
   await persistLeaderboardResult(room, game({ players: [{ ...state.players[0], score: 10 }, { ...state.players[1], score: 7 }] }),
     { updateOne: async (_filter: any, update: any) => { stored = update.$setOnInsert; } });
   assert.equal(board([stored]).entries.length, 0);
+});
+
+test('restored October result plus a signed result give zx exactly two points in both history and monthly HTTP APIs', async () => {
+  const now = Date.parse('2026-10-01T13:00:00Z');
+  const accounts = ['zx', 'snow', 'haha'].map(username => ({ _id: username, username, isGuest: false,
+    createdAt: new Date('2026-09-01T00:00:00Z') }));
+  const records = ['639283', '792081'].map((roomId, index) => game({ roomId, gameId: roomId,
+    mapType: 'archipelago', identityVersion: index ? 1 : 2,
+    completedAt: new Date(`2026-10-01T${index ? '11' : '12'}:00:00Z`),
+    players: [index ? 'haha' : 'snow', 'zx'].map((name, id) => ({ id, name,
+      score: id ? (index ? 5 : 9) : 14, isBot: false, isOriginalBot: false,
+      userId: index ? null : name, sessionId: index ? null : name, isGuest: !!index })),
+  }));
+  const original = structuredClone(records);
+  const app = express(), secret = 'history-test-only';
+  const authenticate = (req: any, res: any, next: any) => {
+    try { req.user = jwt.verify((req.headers.authorization || '').replace('Bearer ', ''), secret); next(); }
+    catch { res.sendStatus(401); }
+  };
+  registerLeaderboardRoutes(app, authenticate,
+    (req: any, res, next) => req.user.role === 'admin' ? next() : res.sendStatus(403), {
+      readRecords: async () => ({ games: records, users: accounts }), readTopCount: async () => 20, writeTopCount: async () => {},
+    }, () => now);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = { Authorization: `Bearer ${jwt.sign({ userId: 'zx', role: 'admin' }, secret)}` };
+  try {
+    const history: any = await (await fetch(url + '/api/user/games', { headers })).json();
+    const adminHistory: any = await (await fetch(url + '/api/admin/user/zx/games?userId=zx', { headers })).json();
+    const monthly: any = await (await fetch(url + '/api/leaderboard?month=2026-10', { headers })).json();
+    assert.deepEqual(history, adminHistory);
+    assert.deepEqual(history.games.map((record: any) => [record.roomId, record.rankingStatus]), [['639283', 'counted'], ['792081', 'counted']]);
+    const historyPoints = history.games.reduce((sum: number, record: any) => sum + record.players.find((p: any) => String(p.id) === record.viewerPlayerId).rankAward.points, 0);
+    const row = monthly.entries.find((entry: any) => entry.userId === 'zx');
+    assert.deepEqual([historyPoints, row.points, row.gameCount, history.stats.totalGames], [2, 2, 2, 2]);
+    assert.equal(monthly.entries.find((entry: any) => entry.userId === 'haha').points, 2);
+    assert.equal(monthly.myGames.length, 2);
+    assert.deepEqual(records, original, 'read-time compatibility must not mutate the stored originals');
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('legacy name-only recovery is independent of guest flags while verified new games require account IDs', () => {
+  const restored = game({ identityVersion: 1, players: game().players.map((player: any) => ({ ...player,
+    userId: null, sessionId: null, isOriginalBot: false, isGuest: true })) });
+  const collision = [...users, { ...users[0], _id: 'guest-A', isGuest: true }];
+  assert.equal(board([restored], collision).entries.some(row => row.userId === '0'), true);
+  const pending = buildAccountGameHistory([restored], collision, '0', NOW);
+  assert.equal(pending.games.length, 1);
+  assert.equal(pending.games[0].rankingStatus, 'counted');
+  assert.equal(board([restored], users.map(user => ({ ...user, createdAt: new Date(NOW) }))).entries.length, 4);
+  assert.equal(board([{ ...restored, identityVersion: 2, scoringVersion: 'rank-points-v18', accountBindingVersion: 1 }]).entries.length, 0);
+});
+
+test('792081 credits zx independently whether hahaha is registered, a guest, or absent', () => {
+  const now = Date.parse('2026-10-01T13:00:00Z');
+  for (const opponentStatus of ['registered', 'guest', 'absent']) {
+    for (const missingId of [null, 'old-guest-session']) {
+      const accounts = ['zx', 'snow'].map(username => ({ _id: username, username, isGuest: false }));
+      accounts.push({ _id: 'guest-zx', username: 'zx', isGuest: true });
+      if (opponentStatus !== 'absent') accounts.push({ _id: 'hahaha', username: 'hahaha', isGuest: opponentStatus === 'guest' });
+      const records = ['639283', '792081'].map((roomId, index) => game({ roomId, gameId: roomId,
+        identityVersion: 2, scoringVersion: 'rank-points-v18', mapType: 'archipelago',
+        completedAt: new Date(`2026-10-01T${index ? '11' : '12'}:00:00Z`),
+        players: [index ? 'hahaha' : 'snow', 'zx'].map((name, id) => ({
+          id, name, score: id ? (index ? 5 : 9) : 14, isOriginalBot: false, isBot: false,
+          userId: index ? missingId : name, sessionId: `session-${id}`, isGuest: !!index,
+          rankAward: { rank: id + 1, points: 2 - id },
+        })),
+      }));
+      const original = structuredClone(records);
+      const history = buildAccountGameHistory(records, accounts, 'zx', now);
+      const monthly = buildMonthlyLeaderboard(records, accounts, '2026-10', 20, now, 'zx');
+      assert.deepEqual(history.games.map(record => record.rankingStatus), ['counted', 'counted']);
+      assert.deepEqual(history.games[1].players.map((player: any) => player.rankAward.points), [2, 1]);
+      assert.deepEqual(history.games[1].players.map((player: any) => player.leaderboardUserId),
+        [opponentStatus === 'registered' ? 'hahaha' : null, 'zx']);
+      const zx = monthly.entries.find(entry => entry.userId === 'zx')!;
+      assert.deepEqual([zx.points, zx.gameCount], [2, 2]);
+      assert.equal(monthly.entries.find(entry => entry.userId === 'hahaha')?.points,
+        opponentStatus === 'registered' ? 2 : undefined);
+      assert.equal(monthly.entries.some(entry => entry.userId === 'guest-zx'), false);
+      assert.deepEqual(records, original);
+    }
+  }
+});
+
+test('legacy account recovery preserves autoplay exclusion and never awards bots', () => {
+  const record = game({ identityVersion: 2, durationMs: 10000, players: game().players.map((player: any) => ({
+    ...player, isGuest: true, userId: null, isOriginalBot: player.id === 0, autoplayMs: player.id === 1 ? 5001 : 0,
+  })) });
+  const result = board([record]);
+  assert.equal(result.entries.some(entry => entry.userId === '0'), false);
+  assert.equal(result.entries.find(entry => entry.userId === '1')?.points, 0);
+  assert.equal(result.entries.find(entry => entry.userId === '2')?.points, 3);
+});
+
+test('history retains unresolved outcomes without hiding them or presenting an invented zero', () => {
+  const invalid = game({ winnerId: null });
+  const history = buildAccountGameHistory([invalid], users, '0', NOW);
+  assert.equal(history.games.length, 1);
+  assert.equal(history.games[0].rankingStatus, 'pending');
+  assert.match(history.games[0].rankingReason, /结算数据不完整/);
+  assert.equal(board([invalid]).entries.length, 0);
+  const first = game(), retry = { ...first, _id: 'retry', completedAt: new Date(NOW - 1) };
+  assert.equal(buildAccountGameHistory([first, retry], users, '0', NOW).games.length, 1);
+});
+
+test('room authentication rejects expired, missing and mismatched tokens instead of silently losing a registered account', () => {
+  const secret = 'room-test-only';
+  const valid = jwt.sign({ userId: 'zx', isGuest: false }, secret);
+  assert.deepEqual(verifiedRoomIdentity(valid, 'zx', secret), { accountId: 'zx', userId: 'zx', isGuest: false });
+  assert.equal(verifiedRoomIdentity(valid, 'other', secret), null);
+  assert.equal(verifiedRoomIdentity(undefined, 'zx', secret), null);
+  assert.equal(verifiedRoomIdentity(valid, 'zx', 'other-secret'), null);
+  assert.equal(verifiedRoomIdentity(jwt.sign({ userId: 'zx', isGuest: false }, secret, { expiresIn: -1 }), 'zx', secret), null);
+  assert.deepEqual(verifiedRoomIdentity(jwt.sign({ userId: 'visitor', isGuest: true }, secret), 'visitor', secret),
+    { accountId: 'visitor', userId: undefined, isGuest: true });
 });
 
 test('Mongo setting persists in its isolated document across store instances; sensitive fields are projected out', async () => {
@@ -241,19 +424,42 @@ test('Mongo setting persists in its isolated document across store instances; se
   assert.equal(projections[1].email, undefined);
   assert.equal(projections[1].password, undefined);
   assert.equal(projections[0].durationMs, 1);
+  assert.equal(projections[0].accountBindingVersion, 1);
 });
 
-test('mixed rooms use human cap, bots receive zero, and solo humans must actually win', () => {
+test('mixed rooms award human positions independent of AI, bots receive zero, and solo humans must actually win', () => {
   const players = [
     { id: 0, score: 10, isBot: true }, { id: 1, score: 9, isBot: false },
     { id: 2, score: 8, isBot: false }, { id: 3, score: 7, isBot: true },
   ];
-  assert.deepEqual(players.map(player => resultRankPoints(players, player, { winnerId: 0 }).points), [0, 1, 0, 0]);
+  assert.deepEqual(players.map(player => resultRankPoints(players, player, { winnerId: 0 }).points), [0, 2, 1, 0]);
   const solo = players.filter(player => player.id !== 2);
   assert.equal(resultRankPoints(solo, solo[1], { winnerId: 0 }).points, 0);
   solo[1].score = 10;
   assert.equal(resultRankPoints(solo, solo[1], { winnerId: 0 }).points, 0, 'a tied non-winner is not a solo win');
   assert.equal(resultRankPoints(solo, solo[1], { winnerId: 1 }).points, 1);
+});
+
+test('mary receives one point behind an AI and old zero snapshots recalculate consistently in history and monthly totals', () => {
+  const accounts = ['rose', 'mary'].map(username => ({ _id: username, username, isGuest: false, createdAt: new Date('2026-01-01T00:00:00Z') }));
+  const record = game({ roomId: '135569', gameId: 'mary-mixed', identityVersion: 2,
+    scoringVersion: 'rank-points-v18', durationMs: 10000,
+    players: ['rose', '领主 AI 4', 'mary', '领主 AI 3'].map((name, id) => ({
+      id, name, score: [10, 9, 8, 6][id], userId: id === 0 || id === 2 ? name : null,
+      isOriginalBot: id === 1 || id === 3, isGuest: false, autoplayMs: 0,
+      rankAward: { rank: id + 1, points: id === 0 ? 2 : 0 },
+    })),
+  });
+  const original = structuredClone(record);
+  const history = buildAccountGameHistory([record], accounts, 'mary', NOW);
+  assert.deepEqual(history.games[0].players[2].rankAward, { rank: 3, points: 1 });
+  assert.equal(history.games[0].scoringVersion, 'human-rank-points-v22');
+  const monthly = buildMonthlyLeaderboard([record], accounts, '2026-09', 20, NOW, 'mary');
+  assert.equal(monthly.entries.find(entry => entry.userId === 'mary')?.points, 1);
+  assert.equal(monthly.myGames?.[0].points, 1);
+  assert.deepEqual(record, original);
+  record.players[2].autoplayMs = 5001;
+  assert.equal(board([record], accounts).entries.find(entry => entry.userId === 'mary')?.points, 0);
 });
 
 test('server accumulates multiple autoplay periods, freezes at finish, and overrides forged timing', async () => {
