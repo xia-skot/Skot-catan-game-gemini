@@ -56,6 +56,9 @@ export default {
         let config: GatewayConfig;
         try { config = validateGatewayConfig(JSON.parse(body)); }
         catch (error) { return json({ error: error instanceof Error ? error.message : '配置错误' }, 400); }
+        if (config.bandwidth?.enabled && !chooseBandwidthTarget(config, await readSnapshot(env))) {
+          return json({ error: '未保存：没有可自动分配的游戏站。请检查本月用量是否完整、采集是否过期、健康检查及预留额度；缺失用量请按 Render Billing 补录。原入口配置保持不变。', code: 'BANDWIDTH_NOT_READY' }, 409);
+        }
         await env.ROUTING.put('routing', JSON.stringify(config));
         return json({ success: true, config });
       }

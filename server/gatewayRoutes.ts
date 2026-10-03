@@ -1,6 +1,8 @@
 import type { Express, RequestHandler } from 'express';
 import { DEFAULT_GATEWAY_CONFIG, validateGatewayConfig } from '../shared/gateway';
 
+class BandwidthNotReady extends Error {}
+
 export function registerGatewayRoutes(app: Express, authenticate: RequestHandler, requireAdmin: RequestHandler,
   options: { demo?: boolean; url?: string; token?: string; fetcher?: typeof fetch } = {}) {
   let demoConfig = structuredClone(DEFAULT_GATEWAY_CONFIG);
@@ -29,8 +31,9 @@ export function registerGatewayRoutes(app: Express, authenticate: RequestHandler
       headers: { Authorization: `Bearer ${options.token}`, 'Content-Type': 'application/json' },
       ...(method === 'PUT' ? { body: JSON.stringify(config) } : {}),
     });
-    if (!response.ok) throw new Error('入口配置服务返回错误，请检查 Worker 绑定及管理密钥');
     const data = await response.json();
+    if (response.status === 409 && data.code === 'BANDWIDTH_NOT_READY') throw new BandwidthNotReady('未保存：没有可自动分配的游戏站。请检查本月用量完整性、采集时间、健康检查和预留额度。原入口配置保持不变。');
+    if (!response.ok) throw new Error('入口配置服务返回错误，请检查 Worker 绑定及管理密钥');
     return validateGatewayConfig(method === 'PUT' ? data.config : data);
   };
   app.get('/api/admin/gateway', authenticate, requireAdmin, async (_req, res) => {
@@ -50,6 +53,9 @@ export function registerGatewayRoutes(app: Express, authenticate: RequestHandler
       if (options.demo) demoConfig = config;
       else config = await requestConfig('PUT', config);
       res.json({ success: true, config });
-    } catch { res.status(503).json({ error: '保存入口配置失败，请检查 Worker 绑定和管理密钥' }); }
+    } catch (error) {
+      if (error instanceof BandwidthNotReady) return res.status(409).json({ error: error.message });
+      res.status(503).json({ error: '保存入口配置失败，请检查 Worker 绑定和管理密钥' });
+    }
   });
 }

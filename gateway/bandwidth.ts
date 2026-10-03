@@ -109,14 +109,20 @@ export async function collectBandwidth(env: BandwidthEnv, config: GatewayConfig,
       if (services.some(s => !s?.id || s.ownerId !== service.ownerId)) throw new Error('工作区服务列表不完整');
       const previous = await read<Ledger>(kv, ledgerKey(site.id, now));
       const ledger: Ledger = previous?.ownerId === service.ownerId ? previous : {
-        ownerId: service.ownerId, checkedAt: 0, complete: queryStart === start, offsetGB: 0, points: {},
+        ownerId: service.ownerId, checkedAt: 0, complete: false, offsetGB: 0, points: {},
       };
       if (ledger.checkedAt && ledger.checkedAt < queryStart) ledger.complete = false;
       let measuredAt = 0;
+      let everyServiceHasSamples = true;
       for (const s of services) {
         const params = new URLSearchParams({ resource: s.id, startTime: new Date(queryStart).toISOString(), endTime: new Date(now).toISOString() });
-        measuredAt = Math.max(measuredAt, mergeSamples(ledger.points, await api(`/metrics/bandwidth?${params}`), s.id, start, now));
+        const serviceMeasuredAt = mergeSamples(ledger.points, await api(`/metrics/bandwidth?${params}`), s.id, start, now);
+        everyServiceHasSamples &&= serviceMeasuredAt > 0;
+        measuredAt = Math.max(measuredAt, serviceMeasuredAt);
       }
+      // Re-evaluate a stale incomplete flag only after a successful full-month
+      // backfill for every listed service. Never erase a manual billing offset.
+      if (queryStart === start && everyServiceHasSamples) ledger.complete = true;
       const observedGB = Object.values(ledger.points).reduce((a, b) => a + b, 0);
       ledger.checkedAt = now;
       await kv.put(ledgerKey(site.id, now), JSON.stringify(ledger));

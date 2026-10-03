@@ -12,7 +12,7 @@ function matches(document: any, filter: any): boolean {
   });
 }
 
-export function attachDemoApi(app: Express, secret: string, resetRooms: () => void) {
+export function attachDemoApi(app: Express, secret: string, resetRooms: () => void | Promise<void>) {
   let messages: any[] = [];
   const seed = () => {
     messages = [{ _id: new ObjectId('222222222222222222222222'), type: 'private', title: '欢迎', content: '这是一条演示私信。打开对话后，未读提示会消失。', senderId: 'admin', senderName: '肖隐弦', targetUserId: user.id, targetUserName: user.username, createdAt: Date.now() },
@@ -21,7 +21,7 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   seed();
   const session = (account = user) => ({ user: account, token: jwt.sign({ userId: account.id, username: account.username, role: account.role, isGuest: false }, secret, { expiresIn: '1d' }) });
   app.get('/api/demo/session', (req, res) => res.json(session(req.query.role === 'admin' ? admin : user)));
-  app.post('/api/demo/reset', (_req, res) => { seed(); resetRooms(); res.json({ success: true }); });
+  app.post('/api/demo/reset', async (_req, res) => { seed(); await resetRooms(); res.json({ success: true }); });
   app.get('/api/me', (req, res) => {
     let account = user;
     try {
@@ -36,7 +36,7 @@ export function attachDemoApi(app: Express, secret: string, resetRooms: () => vo
   app.get('/api/feedback/prompt', (_req, res) => res.json({ prompt: '演示反馈' }));
   app.post('/api/feedback', (_req, res) => res.json({ success: true }));
   app.use('/api', (req, res, next) => {
-    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats', '/admin/gateway', '/admin/analytics', '/admin/guests', '/admin/database-storage', '/user/games', '/admin/user'];
+    const allowed = ['/messages', '/admin/messages', '/sound-settings', '/health', '/db-status', '/leaderboard', '/admin/leaderboard', '/admin/stats', '/admin/gateway', '/admin/analytics', '/admin/guests', '/admin/online', '/admin/database-storage', '/user/games', '/admin/user'];
     if (allowed.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'))) return next();
     res.status(403).json({ error: '此操作不在本地演示范围内' });
   });

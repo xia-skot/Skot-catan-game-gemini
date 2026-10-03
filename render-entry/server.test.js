@@ -1,12 +1,41 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { entryConfig, resolveTarget } from './server.js';
 import { createServer } from './server.js';
 
 const config = entryConfig({
   ROUTING_API_URL: 'https://skot.catan-game.workers.dev/api/route',
   FALLBACK_GAME_URL: 'https://skot-game01.onrender.com',
+});
+
+test('entry shares stable guest identity and only navigates an authenticated game frame to known nodes', async () => {
+  const server = createServer({ config });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const script = await (await fetch(`http://127.0.0.1:${server.address().port}/launcher.js`)).text();
+    const storage = new Map(), replies = [], handlers = {};
+    const frame = { src: 'https://skot-game01.onrender.com/', contentWindow: { postMessage: (...args) => replies.push(args) } };
+    runInNewContext(script, { URL, crypto: { randomUUID: () => 'a'.repeat(36) }, navigator: {}, document: { querySelector: () => frame },
+      localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
+      window: { addEventListener: (event, fn) => handlers[event] = fn } });
+    const send = (data, origin = 'https://skot-game01.onrender.com', source = frame.contentWindow) => handlers.message({ data, origin, source });
+    send({ type: 'catan:session-request', guestDeviceKey: 'b'.repeat(36) });
+    assert.equal(replies[0][0].guestDeviceKey, 'b'.repeat(36));
+    send({ type: 'catan:session-request', guestDeviceKey: 'c'.repeat(36) });
+    assert.equal(replies[1][0].guestDeviceKey, 'b'.repeat(36));
+    send({ type: 'catan:invitation-navigate', url: 'https://evil.onrender.com/' });
+    assert.equal(frame.src, 'https://skot-game01.onrender.com/');
+    send({ type: 'catan:invitation-navigate', url: 'https://skot-game02.onrender.com/?room=123456&invite=abc' }, 'https://attacker.example');
+    assert.equal(frame.src, 'https://skot-game01.onrender.com/');
+    send({ type: 'catan:invitation-navigate', url: 'https://skot-game02.onrender.com/?room=123456&invite=abc' });
+    assert.equal(frame.src, 'https://skot-game02.onrender.com/?room=123456&invite=abc');
+    send({ type: 'catan:session-request' }, 'https://skot-game02.onrender.com');
+    assert.equal(replies.at(-1)[0].guestDeviceKey, 'b'.repeat(36));
+    send({ type: 'catan:session-clear' }, 'https://skot-game02.onrender.com');
+    assert.equal(storage.get('catan_shared_guest_device_key'), 'b'.repeat(36));
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
 test('uses the game target returned by the routing API', async () => {

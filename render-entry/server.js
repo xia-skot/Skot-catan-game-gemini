@@ -10,18 +10,29 @@ const DEFAULT_FALLBACK = 'https://skot-game01.onrender.com';
 const REQUEST_TIMEOUT_MS = 15_000;
 const LAUNCHER_SCRIPT = `
 const frame = document.querySelector('iframe');
-const gameOrigin = new URL(frame.src).origin;
+let gameOrigin = new URL(frame.src).origin;
 const tokenKey = 'catan_shared_auth_token';
 const nameKey = 'catan_shared_player_name';
+const deviceKey = 'catan_shared_guest_device_key';
+const guestProofKey = 'catan_shared_guest_proof';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 window.addEventListener('message', event => {
   if (event.source !== frame.contentWindow || event.origin !== gameOrigin) return;
   const data = event.data || {};
   if (data.type === 'catan:session-request') {
-    frame.contentWindow.postMessage({ type: 'catan:session-response', token: localStorage.getItem(tokenKey), username: localStorage.getItem(nameKey) }, gameOrigin);
+    if (!localStorage.getItem(deviceKey)) localStorage.setItem(deviceKey, typeof data.guestDeviceKey === 'string' && /^[a-zA-Z0-9_-]{32,128}$/.test(data.guestDeviceKey) ? data.guestDeviceKey : (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('')));
+    frame.contentWindow.postMessage({ type: 'catan:session-response', token: localStorage.getItem(tokenKey), username: localStorage.getItem(nameKey), guestDeviceKey: localStorage.getItem(deviceKey), guestProof: localStorage.getItem(guestProofKey) }, gameOrigin);
   } else if (data.type === 'catan:session-update' && typeof data.token === 'string' && data.token.length > 20 && data.token.length < 8192) {
     localStorage.setItem(tokenKey, data.token);
+    if (typeof data.guestProof === 'string' && data.guestProof.length > 20 && data.guestProof.length < 8192) localStorage.setItem(guestProofKey, data.guestProof);
     if (typeof data.username === 'string' && data.username.length <= 80) localStorage.setItem(nameKey, data.username);
+  } else if (data.type === 'catan:invitation-navigate' && typeof data.url === 'string') {
+    try {
+      const target = new URL(data.url);
+      if (['https://skot-game01.onrender.com', 'https://skot-game02.onrender.com', 'https://skot-game03.onrender.com'].includes(target.origin) && target.pathname === '/' && !target.hash && !target.username && !target.password) {
+        gameOrigin = target.origin; frame.src = target.href;
+      }
+    } catch {}
   } else if (data.type === 'catan:session-clear') {
     localStorage.removeItem(tokenKey);
     localStorage.removeItem(nameKey);

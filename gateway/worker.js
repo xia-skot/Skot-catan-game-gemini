@@ -158,16 +158,20 @@ async function collectBandwidth(env, config, now = Date.now(), fetcher = fetch) 
       const ledger = previous?.ownerId === service.ownerId ? previous : {
         ownerId: service.ownerId,
         checkedAt: 0,
-        complete: queryStart === start,
+        complete: false,
         offsetGB: 0,
         points: {}
       };
       if (ledger.checkedAt && ledger.checkedAt < queryStart) ledger.complete = false;
       let measuredAt = 0;
+      let everyServiceHasSamples = true;
       for (const s of services) {
         const params = new URLSearchParams({ resource: s.id, startTime: new Date(queryStart).toISOString(), endTime: new Date(now).toISOString() });
-        measuredAt = Math.max(measuredAt, mergeSamples(ledger.points, await api(`/metrics/bandwidth?${params}`), s.id, start, now));
+        const serviceMeasuredAt = mergeSamples(ledger.points, await api(`/metrics/bandwidth?${params}`), s.id, start, now);
+        everyServiceHasSamples &&= serviceMeasuredAt > 0;
+        measuredAt = Math.max(measuredAt, serviceMeasuredAt);
       }
+      if (queryStart === start && everyServiceHasSamples) ledger.complete = true;
       const observedGB = Object.values(ledger.points).reduce((a, b) => a + b, 0);
       ledger.checkedAt = now;
       await kv.put(ledgerKey(site.id, now), JSON.stringify(ledger));
@@ -270,6 +274,9 @@ var worker_default = {
           config2 = validateGatewayConfig(JSON.parse(body));
         } catch (error) {
           return json({ error: error instanceof Error ? error.message : "\u914D\u7F6E\u9519\u8BEF" }, 400);
+        }
+        if (config2.bandwidth?.enabled && !chooseBandwidthTarget(config2, await readSnapshot(env))) {
+          return json({ error: "\u672A\u4FDD\u5B58\uFF1A\u6CA1\u6709\u53EF\u81EA\u52A8\u5206\u914D\u7684\u6E38\u620F\u7AD9\u3002\u8BF7\u68C0\u67E5\u672C\u6708\u7528\u91CF\u662F\u5426\u5B8C\u6574\u3001\u91C7\u96C6\u662F\u5426\u8FC7\u671F\u3001\u5065\u5EB7\u68C0\u67E5\u53CA\u9884\u7559\u989D\u5EA6\uFF1B\u7F3A\u5931\u7528\u91CF\u8BF7\u6309 Render Billing \u8865\u5F55\u3002\u539F\u5165\u53E3\u914D\u7F6E\u4FDD\u6301\u4E0D\u53D8\u3002", code: "BANDWIDTH_NOT_READY" }, 409);
         }
         await env.ROUTING.put("routing", JSON.stringify(config2));
         return json({ success: true, config: config2 });

@@ -50,7 +50,7 @@ export function buildAnalytics(users: readonly Document[], records: readonly Doc
   const isGuest = (user: Document) => user.isGuest === true || user.role === 'guest';
   const guests = users.filter(isGuest), registered = users.filter(user => user.isGuest === false && !isGuest(user));
   const anchor = periodStart(time, period);
-  const rows = Array.from({ length: period === 'day' ? 14 : 12 }, (_, index) => {
+  const rows = Array.from({ length: period === 'day' ? 7 : 12 }, (_, index) => {
     const start = shiftPeriod(anchor, period, -index), end = shiftPeriod(start, period, 1);
     const joined = (list: readonly Document[]) => list.filter(user => {
       const created = recordTime(user.createdAt);

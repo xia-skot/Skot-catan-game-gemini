@@ -1,6 +1,7 @@
 import { normalizeBotDifficulty, type BotDifficulty } from './botDifficulty';
 export interface SetupPlayer { id: string; name: string; isReady?: boolean; socketId?: string; disconnected?: boolean }
 export interface SetupSettings {
+  spectatorHands?: boolean;
   playerCount: number;
   mapType: string;
   botConfig: boolean[];
@@ -39,6 +40,7 @@ export function getSetupSlots(room: SetupRoom) {
 
 export function applySettingsPatch<T extends SetupRoom>(room: T, patch: SettingsPatch): T {
   const settings = { ...room.settings };
+  if (typeof patch.spectatorHands === 'boolean') settings.spectatorHands = patch.spectatorHands;
   for (const key of ['mapType', 'customBoard', 'customMapName', 'customMapId'] as const) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
       if (key !== 'mapType' && patch[key] == null) delete settings[key];

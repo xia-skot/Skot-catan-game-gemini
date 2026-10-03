@@ -28,8 +28,9 @@ export function createDemoLeaderboardStore(now = () => Date.now()) {
     stats: () => {
       const records = games(), computed = computeLeaderboardUserStats(records, users, now());
       const allUsers = users.map(user => ({ ...user, ...computed.get(String(user._id)) }));
-      return { stats: { users: users.length, guests: 0, games: records.length }, settings: { maxVisibleRooms: 10 },
-        allUsers, latestUsers: allUsers, latestGames: records };
+      const allGuests = [{ _id: '666666666666666666666666', username: '体验游客', isGuest: true, role: 'guest', createdAt: new Date(now()), totalGames: 0, wins: 0, winRate: 0, recent3DayGames: 0 }];
+      return { stats: { users: users.length, guests: allGuests.length, games: records.length }, settings: { maxVisibleRooms: 10 },
+        allUsers, allGuests, latestUsers: allUsers, latestGames: records };
     },
   };
 }
