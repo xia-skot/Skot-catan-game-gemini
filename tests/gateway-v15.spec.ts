@@ -21,7 +21,8 @@ test('admin can configure and reload all three calendar destinations', async ({ 
   await page.goto('/?demoRole=admin');
   await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
   await page.getByRole('heading', { name: '管理中心', exact: true }).click();
-  await page.getByRole('heading', { name: '系统设置', exact: true }).click();
+  await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+  await page.getByRole('button', { name: '网址与流量', exact: true }).click();
   const form = page.getByRole('form', { name: '入口跳转设置' });
   await expect(form.getByRole('combobox', { name: '切换方式' })).toBeEnabled();
   await form.getByRole('combobox', { name: '切换方式' }).selectOption('calendar');
@@ -41,8 +42,33 @@ test('admin can configure and reload all three calendar destinations', async ({ 
   await page.reload();
   await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
   await page.getByRole('heading', { name: '管理中心', exact: true }).click();
-  await page.getByRole('heading', { name: '系统设置', exact: true }).click();
+  await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+  await page.getByRole('button', { name: '网址与流量', exact: true }).click();
   await expect(page.getByLabel('中旬（11—20 日）')).toHaveValue('https://two.onrender.com');
+});
+
+test('automatic routing rejection stays visible and allows fixed-mode recovery', async ({ page }, info) => {
+  await page.route('**/api/admin/gateway', async route => {
+    const request = route.request();
+    if (request.method() === 'PUT' && request.postDataJSON().bandwidth?.enabled) {
+      return route.fulfill({ status: 409, json: { error: '未保存：没有可自动分配的游戏站。原入口配置保持不变。' } });
+    }
+    return route.continue();
+  });
+  await page.goto('/?demoRole=admin');
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('heading', { name: '管理中心', exact: true }).click();
+  await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+  await page.getByRole('button', { name: '网址与流量', exact: true }).click();
+  const form = page.getByRole('form', { name: '入口跳转设置' });
+  await form.getByLabel('切换方式').selectOption('bandwidth');
+  for (const label of ['上旬（1—10 日）', '中旬（11—20 日）', '下旬（21 日—月底）']) await form.getByLabel(label).fill('https://one.onrender.com');
+  await form.getByRole('button', { name: '保存入口设置' }).click();
+  await expect(form.getByRole('alert').filter({ hasText: '原入口配置保持不变' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('bandwidth-not-ready.png'), fullPage: true });
+  await form.getByLabel('切换方式').selectOption('fixed');
+  await form.getByRole('button', { name: '保存入口设置' }).click();
+  await expect(form.getByRole('status')).toContainText('演示配置已保存');
 });
 
 test('monthly points have per-game evidence and old server versions do not silently show stale scores', async ({ page }, info) => {

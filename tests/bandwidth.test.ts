@@ -124,3 +124,65 @@ test('admin metrics require authentication and public routing does not silently 
   const pinned = await worker.fetch(new Request('https://entry.test/api/route?site=early'), env);
   assert.equal((await pinned.json() as any).origin, RENDER_SITES[0].origin);
 });
+
+function monthFetcher(at: number, mode: 'ok' | 'empty' | 'partial' | 'error' = 'ok'): typeof fetch {
+  return (async (url: any, options: any) => {
+    const u = new URL(String(url));
+    if (u.pathname === '/api/health') return Response.json({ status: 'ok' });
+    const i = Number(options.headers.Authorization.slice(-1)) - 1;
+    const site = RENDER_SITES[i];
+    const service = { id: site.id, ownerId: `owner${i}`, serviceDetails: { url: site.origin } };
+    if (u.pathname === `/v1/services/${site.id}`) return Response.json(service);
+    if (u.pathname === '/v1/services') return Response.json([{ service }, { service: { id: `other${i}`, ownerId: service.ownerId } }]);
+    assert.equal(u.pathname, '/v1/metrics/bandwidth');
+    const other = u.searchParams.get('resource')!.startsWith('other');
+    if (mode === 'error' && other) return new Response(null, { status: 403 });
+    if (mode === 'empty' || (mode === 'partial' && other)) return Response.json([]);
+    const start = Date.parse(u.searchParams.get('startTime')!);
+    const values = [];
+    for (let t = start; t <= at - 2 * hour; t += hour) values.push({ timestamp: new Date(t).toISOString(), value: 1 });
+    return Response.json([{ unit: 'MB', labels: [], values }]);
+  }) as typeof fetch;
+}
+
+test('October 3 repairs an incomplete monthly ledger, deduplicates and retains billing offsets', async () => {
+  const env = environment(), at = Date.parse('2026-10-03T08:00:00Z');
+  for (const [i, site] of RENDER_SITES.entries()) await env.ROUTING.put(`bandwidth:ledger:2026-10:${site.id}`, JSON.stringify({
+    ownerId: `owner${i}`, checkedAt: at - hour, complete: false, offsetGB: 0.7, points: {},
+  }));
+  const repaired = await collectBandwidth(env, config, at, monthFetcher(at));
+  assert(repaired!.rows.every(row => row.complete && !row.error));
+  assert.equal(chooseBandwidthTarget(config, repaired, at)?.origin, RENDER_SITES[0].origin);
+  assert(Math.abs(repaired!.rows[0].observedGB - 0.11) < 1e-9);
+  assert(Math.abs(repaired!.rows[0].usedGB - 0.81) < 1e-9);
+  const repeated = await collectBandwidth(env, config, at + 20 * 60000, monthFetcher(at));
+  assert.equal(repeated!.rows[0].usedGB, repaired!.rows[0].usedGB);
+});
+
+test('empty, partially empty or failed service queries cannot recover an incomplete ledger', async () => {
+  const at = Date.parse('2026-10-03T08:00:00Z');
+  for (const mode of ['empty', 'partial', 'error'] as const) {
+    const env = environment();
+    const result = await collectBandwidth(env, config, at, monthFetcher(at, mode));
+    assert(result!.rows.every(row => !row.complete));
+    assert.equal(chooseBandwidthTarget(config, result, at), null);
+    const recovered = await collectBandwidth(env, config, at + hour, monthFetcher(at + hour));
+    assert(recovered!.rows.every(row => row.complete && !row.error));
+  }
+});
+
+test('month-start collection needs no calibration; a later unrecoverable gap still does', async () => {
+  const env = environment(), early = Date.parse('2026-10-03T08:00:00Z');
+  const fresh = await collectBandwidth(env, config, early, monthFetcher(early));
+  assert(fresh!.rows.every(row => row.complete));
+  const late = Date.parse('2026-10-20T08:00:00Z');
+  const gap = await collectBandwidth(env, config, late, monthFetcher(late));
+  assert(gap!.rows.every(row => !row.complete));
+  assert.equal(chooseBandwidthTarget(config, gap, late), null);
+  const retry = await collectBandwidth(env, config, late + hour, monthFetcher(late + hour));
+  assert(retry!.rows.every(row => !row.complete));
+  const nextMonth = Date.parse('2026-11-03T08:00:00Z');
+  const next = await collectBandwidth(env, config, nextMonth, monthFetcher(nextMonth));
+  assert.equal(next!.month, '2026-11');
+  assert(next!.rows.every(row => row.complete));
+});

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect, startTransition } from 'react';
+import { InvitationBanner, InviteOnlineButton, SpectatorExit } from './components/OnlineFeatures';
+import { AvatarInteractions } from './components/AvatarInteractions';
 import { Stage, Layer, RegularPolygon, Text, Group, Circle, Line, Path, Image, Rect } from 'react-konva';
 import { Html } from 'react-konva-utils';
 import Konva from 'konva';
@@ -910,11 +912,13 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
   const playerBarRef = useRef<HTMLDivElement>(null);
   const mainMapRef = useRef<HTMLDivElement>(null);
   const gameContainerRef = useRef<HTMLDivElement>(null);
+  const [spectatorExitAnchor, setSpectatorExitAnchor] = useState<HTMLSpanElement | null>(null);
   const devCardOverlayRef = useRef<HTMLDivElement>(null);
   
   const [activeLobbyTab, setActiveLobbyTab] = useState<'lobby' | 'rooms' | 'profile' | 'rules'>('lobby');
   
   const [currentUser, setCurrentUser] = useState<any>(null);
+  useEffect(() => { if (currentUser) socketService.authenticateSocial(); }, [currentUser]);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   useEffect(() => { if (!isAuthLoading) onAccountReady?.(); }, [isAuthLoading, onAccountReady]);
   const [gameStarted, setGameStarted] = useState(() => {
@@ -930,6 +934,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       await waitForEntrySession();
       const token = localStorage.getItem('catan_auth_token');
       if (token) {
+        if (!localStorage.getItem('catan_guest_proof')) localStorage.setItem('catan_guest_proof', token);
         try {
           const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` }});
           if (res.ok) {
@@ -938,6 +943,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
               const data = await res.json();
               if (data && data.user) {
                 setCurrentUser(data.user);
+                if (data.user.isGuest) localStorage.setItem('catan_guest_proof', token);
                 socketService.playerId = data.user.id;
                 localStorage.setItem('catan_player_name', data.user.username);
                 syncSessionToEntry(token, data.user.username);
@@ -991,9 +997,10 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       setHasUnreadPrivateMsgs(latestMessages.some(m => (m.type === 'private' || m.targetUserId) && !read.has(m.id) && m.senderName !== currentUser.username && m.senderId !== currentUser.id));
     };
     const checkUnread = async () => {
+      if (document.hidden) return;
       try {
         const token = localStorage.getItem('catan_auth_token');
-        const res = await fetch('/api/messages', {
+        const res = await fetch('/api/messages?summary=1', {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
         if (res.ok) {
@@ -1009,7 +1016,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
     };
 
     checkUnread();
-    const interval = setInterval(checkUnread, 4000);
+    const interval = setInterval(checkUnread, 15000);
     window.addEventListener(MESSAGE_READ_EVENT, updateUnread);
     window.addEventListener('storage', updateUnread);
     return () => {
@@ -1070,8 +1077,9 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
 
   const visiblePlayer = useMemo(() => {
     if (!gameState) return null;
+    if (isSpectator && roomState?.settings?.spectatorHands !== true) return null;
     return gameState.players[visiblePlayerIndex];
-  }, [gameState, visiblePlayerIndex]);
+  }, [gameState, visiblePlayerIndex, isSpectator, roomState?.settings?.spectatorHands]);
 
   useEffect(() => {
     socketService.connect();
@@ -1322,7 +1330,11 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       setTimeout(() => {
         if (!isAutoReconnectingRef.current) return;
         const asSpec = localStorage.getItem('catan_is_spectator') === 'true';
-        socketService.joinRoom(roomIdToJoin, playerName, asSpec);
+        socketService.joinRoom(roomIdToJoin, playerName, params.has('invite') ? false : asSpec, params.get('invite') || undefined);
+        if (params.has('invite')) {
+          const cleanUrl = new URL(window.location.href); cleanUrl.searchParams.delete('invite');
+          window.history.replaceState(window.history.state, '', cleanUrl.pathname + cleanUrl.search);
+        }
         isAutoReconnectingRef.current = false;
       }, 50);
     } else {
@@ -1377,12 +1389,12 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
 
     localStorage.removeItem('catan_auth_token');
     localStorage.removeItem('catan_player_name');
-    localStorage.removeItem('catan_guest_id');
     localStorage.removeItem('catan_active_room');
     localStorage.removeItem('catan_has_created_room');
     localStorage.removeItem('catan_game_active');
     localStorage.removeItem('catan_is_spectator');
     clearEntrySession();
+    socketService.disconnect();
 
     const freshGuestId = Math.random().toString(36).substring(2, 10);
     localStorage.setItem('catan_player_id', freshGuestId);
@@ -2032,6 +2044,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
   }, [gameState?.board]);
 
   const hasManuallyInteractedRef = useRef(false);
+  const viewInitializedRef = useRef(false);
 
   const setHasManuallyInteracted = useCallback((val: boolean) => {
     hasManuallyInteractedRef.current = val;
@@ -2107,17 +2120,15 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       setShowLeftPanel(true);
       setShowRightPanel(true);
       
-      // Center map on screen resize
-      if (gameStarted) {
-        hasManuallyInteractedRef.current = false;
-        centerMap(true);
-      }
+      // A resize (including mobile browser chrome) must not discard the player's view.
     };
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
 
     // Initial enter game center
-    if (gameStarted) {
+    if (!gameStarted) viewInitializedRef.current = false;
+    if (gameStarted && !viewInitializedRef.current && stageRef.current && hexCoords.length) {
+      viewInitializedRef.current = true;
       hasManuallyInteractedRef.current = false;
       centerMap(true);
     }
@@ -2126,7 +2137,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, [centerMap, gameStarted]);
+  }, [centerMap, gameStarted, hexCoords.length]);
 
   const zoomEndTimeoutRef = useRef<any>(null);
 
@@ -3849,6 +3860,9 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
               )}
 
               <div className="w-full flex flex-col gap-1.5 justify-center">
+                <label className="flex items-start gap-2 py-1 text-[10px] leading-relaxed text-slate-600">
+                  <input type="checkbox" checked={roomState?.settings?.spectatorHands === true} disabled={!isHostInLobby} onChange={e => syncSettings({ spectatorHands: e.target.checked })} className="mt-0.5 accent-emerald-600" />允许观众看到所有玩家手牌
+                </label>
                 {!roomState?.players.find(p => p.id === socketService.playerId)?.isReady ? (
                   <button 
                     onClick={handleToggleReady}
@@ -3903,6 +3917,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
             
             {/* Room Info Section */}
             <div className="relative shrink-0">
+              {isHostInLobby && roomState && <InviteOnlineButton key={roomState.roomId} roomId={roomState.roomId} disabled={roomState.players.length + botConfig.filter(Boolean).length >= playerCount} />}
               <div className="bg-white p-2.5 rounded-xl border border-slate-100/90 shadow-2xs grid grid-cols-3 gap-1 items-center">
                 {/* 1. 在线匹配玩家 and Player count */}
                 <div className="flex flex-col items-center justify-center gap-1 pr-1 border-r border-slate-100/80">
@@ -4303,7 +4318,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
             })()}
 
             {/* Bottom-Right: Exit button (Red line icon) */}
-            <button 
+            {isSpectator ? <span ref={setSpectatorExitAnchor} data-spectator-exit-anchor className="block h-[17px] w-[17px]" /> : <button
               onClick={(e) => { 
                 e.stopPropagation(); 
                 if (isHost && gameStarted) {
@@ -4313,10 +4328,10 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                 }
               }}
               className="text-red-500 hover:text-red-600 transition-all active:scale-90 flex items-center justify-center p-0.5"
-              title={isSpectator ? "退出观战" : "离开房间"}
+              title="离开房间"
             >
               <LogOut size={13} strokeWidth={2.2} className="scale-x-[-1]" />
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -4329,7 +4344,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
             {gameState.players.map((p, i) => {
               const isCurrent = i === activePlayerId;
               const displayResources = (isDiceRolling && !isSpectator && displayedResourcesMap[p.id]) ? displayedResourcesMap[p.id] : p.resources;
-              const resourceCount = Object.values(displayResources).reduce((a, b) => a + b, 0);
+              const resourceCount = p.publicResourceCount ?? Object.values(displayResources).reduce((a, b) => a + b, 0);
               const publicScore = (p.settlements * 1) + (p.cities * 2) + p.victoryPoints;
               const isFocused = isSpectator && i === spectatorFocusId;
 
@@ -4349,13 +4364,10 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                     ${isFocused && !isCurrent ? 'ring-2 ring-indigo-400 bg-indigo-50/50 opacity-100' : ''}
                     ${isSpectator ? 'cursor-pointer active:scale-95' : 'cursor-default'}
                   `}>
-                <div 
-                  onClick={() => {
-                    if (p.sessionId === socketService.playerId) {
-                      toggleBot(p.id);
-                    }
-                  }}
-                  className={`rounded-full border border-white ring-1 ring-black/10 flex items-center justify-center shrink-0 transition-transform ${isMobile ? 'w-5 h-5' : 'w-4 h-4'} ${p.sessionId === socketService.playerId ? 'cursor-pointer hover:scale-110' : 'cursor-default'}`}
+                <button type="button" data-social-avatar={p.sessionId || `bot:${p.id}`} data-social-name={p.name}
+                  aria-label={`与${p.name}互动`} title={`与${p.name}互动`}
+                  onClick={event => event.stopPropagation()}
+                  className={`rounded-full border border-white ring-1 ring-black/10 flex items-center justify-center shrink-0 transition-transform w-7 h-7 cursor-pointer hover:scale-110`}
                   style={{ backgroundColor: p.color }}
                 >
                   {p.isBot ? (
@@ -4363,7 +4375,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                   ) : (
                     <User size={isMobile ? 10 : 8} color={p.color === '#F1C40F' ? '#000' : '#FFF'} />
                   )}
-                </div>
+                </button>
                 <div className="flex flex-col flex-1 pl-0.5">
                     <div className="flex items-center gap-1">
                       <span className={`${isMobile ? 'text-[9px]' : 'text-[11px]'} font-bold leading-none truncate max-w-[40px] md:max-w-[80px]`}>{p.name}</span>
@@ -4398,7 +4410,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                       </span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="发展卡">
                         <SmartImg src={DEV_CARD_ICON} alt="dev" className="w-2.5 h-2.5 object-contain" />
-                        {p.devCards.length + (p.devCardsBoughtThisTurn?.length || 0) + p.playedDevCards.length}
+                        {p.publicDevCardCount ?? (p.devCards.length + (p.devCardsBoughtThisTurn?.length || 0) + p.playedDevCards.length)}
                       </span>
                       <span className={`flex items-center gap-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px]'} font-mono opacity-80 whitespace-nowrap ml-1`} title="最长道路">
                         <SmartImg src={ROAD_ICON} alt="road" className="w-2.5 h-2.5 object-contain" />
@@ -4447,11 +4459,12 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
               })}
               <div className={`flex items-center justify-between ${isMobile ? 'p-0.5 px-1' : 'p-1.5'} rounded-md bg-red-600 shadow-sm text-white`}>
                 <span className={`${isMobile ? 'text-[7px]' : 'text-[9px]'} font-black`}>发</span>
-                <span className={`${isMobile ? 'text-[7px]' : 'text-[9px]'} font-mono font-bold`}>{gameState.bankDevCards.length}</span>
+                <span className={`${isMobile ? 'text-[7px]' : 'text-[9px]'} font-mono font-bold`}>{gameState.publicBankDevCardCount ?? gameState.bankDevCards.length}</span>
               </div>
             </div>
           </section>
 
+          {isSpectator && !roomState?.settings?.spectatorHands ? <p className="p-2 text-xs text-slate-500">房主未开放手牌查看</p> : <>
           <section className={`${isMobile ? 'pt-1' : 'pt-4'} border-t border-black/5`}>
             <div className={`flex items-center justify-between ${isMobile ? 'mb-1' : 'mb-2'}`}>
               <h3 className="text-[9px] uppercase tracking-[0.2em] font-black opacity-30">
@@ -4612,6 +4625,7 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
                )}
               </div>
             </section>
+          </>}
           </RotatedScroll>
          </motion.aside>
       )}
@@ -4741,16 +4755,6 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
               if (e.target === e.target.getStage()) {
                 setPendingBuild(null);
                 setPendingRobberHex(null);
-              }
-            }}
-            onDblClick={() => {
-              if (Date.now() - lastGestureTime.current > 300) {
-                centerMap(true);
-              }
-            }}
-            onDblTap={() => {
-              if (Date.now() - lastGestureTime.current > 300) {
-                centerMap(true);
               }
             }}
           >
@@ -6768,6 +6772,16 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       return point;
     }}>
       <>
+        <InvitationBanner enabled={!!currentUser} inRoom={!!roomState || isJoinedLobby} onJoin={invitation => {
+          localStorage.removeItem('catan_is_spectator'); setIsJoinSpectator(false);
+          setInputRoomId(invitation.roomId); setIsJoinedLobby(true);
+          socketService.joinRoom(invitation.roomId, playerName, false, invitation.id);
+        }} />
+        {isSpectator && roomState && <SpectatorExit anchor={spectatorExitAnchor} rotated={shouldApplyPortraitRotation} onExit={() => {
+          setShowRulesModal(false); setShowSoundModal(false); setConfirmAction(null); setShowPwaGuide(false);
+          handleReturnToLobby();
+        }} />}
+        {gameStarted && roomState && <AvatarInteractions roomId={roomState.roomId} selfId={socketService.playerId} rotated={shouldApplyPortraitRotation} />}
         {gameStarted && roomState ? <AssetGate onCancel={handleReturnToLobby}>{mainContent}</AssetGate> : mainContent}
         {!roomState && !isJoinedLobby && exitToast}
         {showSailingScreen && (

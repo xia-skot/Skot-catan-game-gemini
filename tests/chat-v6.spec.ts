@@ -89,6 +89,7 @@ test('admin can start conversations from the private list without a hidden-list 
     const response = await route.fetch();
     const data = await response.json();
     data.allPlayers = [...(data.allPlayers || []), '尚未聊天的玩家'];
+    data.recipients = [...(data.recipients || []), { id: '777777777777777777777777', username: '尚未聊天的玩家', isGuest: false }];
     await route.fulfill({ response, json: data });
   });
   await page.goto('/?demoRole=admin');
@@ -97,10 +98,10 @@ test('admin can start conversations from the private list without a hidden-list 
   await page.getByText('私信', { exact: true }).click();
   await expect(page.locator('[data-conversation]').first()).toBeVisible();
   await expect(page.locator('[data-conversation="尚未聊天的玩家"]')).toHaveCount(0);
-  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('尚未聊天的玩家');
+  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('777777777777777777777777');
   await expect(page.locator('.chat-screen')).toBeVisible();
   await page.locator('.chat-screen').getByRole('button', { name: '返回', exact: true }).click();
-  await expect(page.locator('[data-conversation="尚未聊天的玩家"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: '打开与尚未聊天的玩家的私信' })).toBeVisible();
   await page.getByRole('button', { name: '清屏（仅本机）', exact: true }).click();
   await expect(page.locator('[data-conversation]')).toHaveCount(0);
   await page.reload();
@@ -108,7 +109,7 @@ test('admin can start conversations from the private list without a hidden-list 
   await page.getByText('私信', { exact: true }).click();
   await expect(page.locator('[data-conversation]')).toHaveCount(0);
   await expect(page.getByText(/已隐藏会话/)).toHaveCount(0);
-  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('尚未聊天的玩家');
+  await page.getByRole('combobox', { name: '选择玩家发起私信' }).selectOption('777777777777777777777777');
   await expect(page.locator('.chat-screen')).toBeVisible();
 });
 

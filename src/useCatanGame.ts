@@ -387,6 +387,7 @@ export function useCatanGame() {
         // Retry loop for island placement
         while (islandsPlacedCount < numIslands && retryCount < MAX_RETRIES) {
             // Reset for this attempt
+            shape.forEach(hex => { if (hex.category === 'Island') hex.category = 'InnerSea'; });
             landHexes.clear();
             islandsPlacedCount = 0;
             let islandIdCounter = 1;
@@ -440,7 +441,11 @@ export function useCatanGame() {
                                 const nKey = `${n.q},${n.r}`;
                                 const nHex = shape.find(s => s.q === n.q && s.r === n.r);
                                 // Can grow into InnerSea that is not already occupied
-                                if (nHex && nHex.category === 'InnerSea' && !landHexes.has(nKey) && !tempIslandHexes.has(nKey) && visitedInIsland.size < targetSize) {
+                                const touchesOtherIsland = [...landHexes.keys()].some(key => {
+                                    const [q, r] = key.split(',').map(Number);
+                                    return Math.max(Math.abs(n.q - q), Math.abs(n.r - r), Math.abs(n.q + n.r - q - r)) <= 1;
+                                });
+                                if (nHex && nHex.category === 'InnerSea' && !landHexes.has(nKey) && !tempIslandHexes.has(nKey) && !touchesOtherIsland && visitedInIsland.size < targetSize) {
                                     tempIslandHexes.set(nKey, {id: islandIdCounter, category: 'Island'});
                                     visitedInIsland.add(nKey);
                                     islandQueue.push(nHex);
@@ -448,9 +453,8 @@ export function useCatanGame() {
                             }
                         }
 
-                        // Only commit if we reached target size (or close to it, e.g. >= targetSize - 1)
-                        // For strictness, let's require full size or at least min size
-                        if (visitedInIsland.size >= minIslandSize) {
+                        // Keep the configured island tile count across retries.
+                        if (visitedInIsland.size === targetSize) {
                             tempIslandHexes.forEach((val, key) => {
                                 landHexes.set(key, val);
                                 const [q, r] = key.split(',').map(Number);
@@ -682,7 +686,9 @@ export function useCatanGame() {
 
     // Find all connected components of land hexes (excluding deserts)
     const isLand = (h) => (h.isMainland || h.isIsland) && h._category !== 'Desert' && h.type !== 'desert';
-    const unvisitedLand = new Set(hexes.filter(isLand).map(h => h.id));
+    // Connectivity must survive the flag reset used to assign new components.
+    const landIds = new Set(hexes.filter(isLand).map(h => h.id));
+    const unvisitedLand = new Set(landIds);
     
     let currentIslandId = 1;
     
@@ -714,7 +720,7 @@ export function useCatanGame() {
                 component.push(curr);
                 if (curr.isStartingLand) hasStartingLand = true;
                 
-                const neighbors = hexes.filter(n => isLand(n) && Math.max(Math.abs(n.q - curr.q), Math.abs(n.r - curr.r), Math.abs((n.q + n.r) - (curr.q + curr.r))) === 1);
+                const neighbors = hexes.filter(n => landIds.has(n.id) && Math.max(Math.abs(n.q - curr.q), Math.abs(n.r - curr.r), Math.abs((n.q + n.r) - (curr.q + curr.r))) === 1);
                 for (const n of neighbors) {
                     if (unvisitedLand.has(n.id)) {
                         unvisitedLand.delete(n.id);
@@ -794,8 +800,8 @@ export function useCatanGame() {
           }
       }
 
-      // Fill remaining gold if needed (or for standard map)
-      const remainingForGold = availableLandSlots.filter(h => h.type === HexType.Sea);
+      // Never put a second gold mine on an island when the topology has too few islands.
+      const remainingForGold = availableLandSlots.filter(h => h.type === HexType.Sea && (mapType !== 'archipelago' || h.isMainland));
       const shuffledRemainingForGold = [...remainingForGold].sort(() => Math.random() - 0.5);
       for (const hex of shuffledRemainingForGold) {
           if (goldPlaced >= goldCount) break;
@@ -1027,7 +1033,10 @@ export function useCatanGame() {
           const preferredGoldNums = [2, 3, 4, 10, 11, 12];
           goldHexes.forEach(gHex => {
               if (gHex.number && !preferredGoldNums.includes(gHex.number)) {
-                  const candidate = newHexes.find(h => h.type !== HexType.Gold && h.type !== HexType.Desert && h.type !== HexType.Sea && h.number !== null && preferredGoldNums.includes(h.number));
+                  const candidate = newHexes.find(h => h.type !== HexType.Gold && h.type !== HexType.Desert && h.type !== HexType.Sea &&
+                      h.isMainland === gHex.isMainland && h.isIsland === gHex.isIsland &&
+                      h.number !== null && preferredGoldNums.includes(h.number) &&
+                      (!isRed(gHex.number!) || !newHexes.some(n => n.id !== gHex.id && n.number !== null && isRed(n.number) && areAdjacent(h, n))));
                   if (candidate && candidate.number) {
                       const temp = gHex.number;
                       gHex.number = candidate.number;
@@ -1035,6 +1044,22 @@ export function useCatanGame() {
                   }
               }
           });
+      }
+      // The randomized fallback must not silently return adjacent red tokens.
+      const hasRedConflict = () => allHexesNeedingNumbers.some(h => h.number !== null && isRed(h.number) &&
+          allHexesNeedingNumbers.some(n => n.id !== h.id && n.number !== null && isRed(n.number) && areAdjacent(h, n)));
+      if (hasRedConflict()) {
+          for (const group of [mainlandHexes, islandHexes]) {
+              const reds = group.map(h => h.number!).filter(isRed);
+              const normals = group.map(h => h.number!).filter(n => !isRed(n));
+              // Axial hexes have a three-coloring; each color is an independent set.
+              const colors = [0, 1, 2].map(color => group.filter(h => ((h.q - h.r) % 3 + 3) % 3 === color));
+              const slots = colors.sort((a, b) => b.length - a.length)[0];
+              if (slots.length < reds.length) throw new Error('地图红色数字配额无法满足间距要求，请重新生成');
+              const selected = new Set(slots.slice(0, reds.length).map(h => h.id));
+              group.forEach(h => { h.number = selected.has(h.id) ? reds.pop()! : normals.pop()!; });
+          }
+          if (hasRedConflict()) throw new Error('地图红色数字间距校验失败，请重新生成');
       }
       if (window.location.search.includes('debug')) {
         const counts = (hexList: Hex[]) => {

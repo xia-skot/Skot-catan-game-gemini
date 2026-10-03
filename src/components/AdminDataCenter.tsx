@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCw, Loader2, Users, User, ChevronRight, Database, Save, Search } from 'lucide-react';
+import { RotateCw, Loader2, Users, User, ChevronRight, Database, Save, Search, ExternalLink } from 'lucide-react';
 import { safeFetchJson } from '../fetchUtils';
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('catan_auth_token')}` });
@@ -35,13 +35,13 @@ function Refresh({ loading, reload }: { loading: boolean; reload: () => void }) 
   </button>;
 }
 
-export function AdminDataCenter({ onUsers, onGuests }: { onUsers: () => void; onGuests: () => void }) {
+export function AdminDataCenter({ onUsers, onGuests, onGateway, onStorage }: { onUsers: () => void; onGuests: () => void; onGateway: () => void; onStorage: () => void }) {
   const [period, setPeriod] = useState('day'), [date, setDate] = useState(today);
   const { data, error, loading, reload } = useAdminQuery(`/api/admin/analytics?period=${period}&date=${date}`);
   return <div className="space-y-5" data-admin-analytics>
     <div className="flex items-center justify-between gap-3"><span className="text-xs text-slate-500">北京时间 · 每周一开始 · 已完成对局</span><Refresh loading={loading} reload={reload} /></div>
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-5 border-b border-slate-200 pb-5 sm:grid-cols-3">
+    <dl className="grid grid-cols-3 gap-x-3 gap-y-5 border-b border-slate-200 pb-5">
       {([['registered', '注册玩家'], ['guests', '游客账号'], ['games', '累计盘数'], ['today', '今日盘数'], ['week', '本周盘数'], ['month', '本月盘数']] as const).map(([key, label]) =>
         <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-800" data-metric={key}>{data ? data.totals[key].toLocaleString('zh-CN') : '—'}</dd></div>)}
     </dl>
@@ -58,7 +58,7 @@ export function AdminDataCenter({ onUsers, onGuests }: { onUsers: () => void; on
     </tr>)}</tbody></table>
     {loading && <p role="status" className="text-center text-sm text-slate-500">正在读取统计数据…</p>}
     <div className="divide-y divide-slate-200 border-y border-slate-200">
-      {[[Users, '玩家名单', onUsers], [User, '游客名单', onGuests]].map(([Icon, label, action]: any) => <button key={label} type="button" onClick={action} className="flex w-full items-center gap-3 py-4 text-sm text-slate-700"><Icon size={18} /><span>{label}</span><ChevronRight size={18} className="ml-auto" /></button>)}
+      {[[Users, '玩家名单', onUsers], [User, '游客名单', onGuests], [ExternalLink, '网址与流量', onGateway], [Database, '数据库空间', onStorage]].map(([Icon, label, action]: any) => <button key={label} type="button" onClick={action} className="flex w-full items-center gap-3 py-4 text-sm text-slate-700"><Icon size={18} /><span>{label}</span><ChevronRight size={18} className="ml-auto" /></button>)}
     </div>
   </div>;
 }

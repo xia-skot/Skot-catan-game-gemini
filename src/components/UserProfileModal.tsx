@@ -238,6 +238,9 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     refresh();
     setInPrivateChatDetail(false);
     setSelectedChatPlayer(null);
+    setSelectedRecipientId(null);
+    setRecipients([]);
+    setAllPlayerNames([]);
     setReplyText('');
     setShowTimestampDates(false);
     setDisplayNotice('');
@@ -296,17 +299,21 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   const [selectedChatPlayer, setSelectedChatPlayer] = useState<string | null>(null);
   const [adminUsername, setAdminUsername] = useState<string>('肖隐弦');
   const [allPlayerNames, setAllPlayerNames] = useState<string[]>([]);
+  const [recipients, setRecipients] = useState<{ id: string; username: string; isGuest: boolean }[]>([]);
+  const [recipientSearch, setRecipientSearch] = useState('');
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
 
   // 管理员账号按不同玩家划分的私信会话列表 (竖向QQ列表，完美过滤自己与自己)
   const adminConversations = React.useMemo(() => {
     if (!isAdmin) return [];
-    const map = new Map<string, { username: string; msgs: any[]; lastMsg: any }>();
+    const map = new Map<string, { key: string; id?: string; username: string; msgs: any[]; lastMsg: any }>();
 
     // Explicitly opened conversations can exist before the first message is sent.
     Object.entries(displayState).forEach(([key, display]) => {
       if (!key.startsWith('player:') || display.hiddenMessageIds) return;
       const name = key.slice('player:'.length);
-      if (name && name !== currentUser?.username) map.set(name, { username: name, msgs: [], lastMsg: null });
+      const recipient = recipients.find(item => `id:${item.id}` === name);
+      if (name && name !== currentUser?.username) map.set(name, { key: name, id: recipient?.id, username: recipient?.username || name, msgs: [], lastMsg: null });
     });
 
     allRawPrivateMsgs.forEach(msg => {
@@ -342,15 +349,17 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
         return;
       }
 
-      if (!map.has(partner)) {
-        map.set(partner, { username: partner, msgs: [], lastMsg: null });
+      const id = isSenderAdmin ? msg.targetUserId : msg.senderId;
+      const key = /^[a-f0-9]{24}$/i.test(id || '') ? `id:${id}` : partner;
+      if (!map.has(key)) {
+        map.set(key, { key, id: key.startsWith('id:') ? id : undefined, username: partner, msgs: [], lastMsg: null });
       }
 
-      const conv = map.get(partner)!;
+      const conv = map.get(key)!;
       conv.msgs.push(msg);
     });
 
-    const result: { username: string; msgs: any[]; lastMsg: any }[] = [];
+    const result: { key: string; id?: string; username: string; msgs: any[]; lastMsg: any }[] = [];
     map.forEach((conv) => {
       conv.msgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       conv.lastMsg = conv.msgs.length > 0 ? conv.msgs[conv.msgs.length - 1] : null;
@@ -366,7 +375,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       return a.username.localeCompare(b.username);
     });
     return result;
-  }, [allRawPrivateMsgs, isAdmin, currentUser, displayState]);
+  }, [allRawPrivateMsgs, isAdmin, currentUser, displayState, recipients]);
 
   const adminDisplayName = React.useMemo(() => {
     if (currentUser?.role === 'admin' && currentUser?.username) return currentUser.username;
@@ -383,14 +392,15 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       return playerPrivateMsgs;
     }
     if (!selectedChatPlayer) return [];
+    if (selectedRecipientId) return allRawPrivateMsgs.filter(m => m.senderId === selectedRecipientId || m.targetUserId === selectedRecipientId).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     const conv = adminConversations.find(c => c.username === selectedChatPlayer);
     return conv ? conv.msgs : [];
-  }, [isAdmin, playerPrivateMsgs, selectedChatPlayer, adminConversations]);
+  }, [isAdmin, playerPrivateMsgs, selectedChatPlayer, selectedRecipientId, allRawPrivateMsgs, adminConversations]);
 
   const conversationKey = (name?: string | null) => isAdmin ? `player:${name || ''}` : 'admin';
   const activeChatMsgs = activeRawChatMsgs;
   const [showTimestampDates, setShowTimestampDates] = useState(false);
-  const visibleAdminConversations = adminConversations.filter(conv => !conversationIsHidden(displayState[conversationKey(conv.username)], conv.msgs));
+  const visibleAdminConversations = adminConversations.filter(conv => !conversationIsHidden(displayState[conversationKey(conv.key)] || displayState[conversationKey(conv.username)], conv.msgs));
   const playerConversationHidden = conversationIsHidden(displayState.admin, playerPrivateMsgs);
   const visiblePlayerMsgs = playerPrivateMsgs;
 
@@ -402,7 +412,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
   // Once a new ID arrives, persist the resurfaced state even across later reloads.
   useEffect(() => {
-    const conversations = isAdmin ? adminConversations.map(conv => ({ key: `player:${conv.username}`, msgs: conv.msgs })) : [{ key: 'admin', msgs: playerPrivateMsgs }];
+    const conversations = isAdmin ? adminConversations.map(conv => ({ key: `player:${conv.key}`, msgs: conv.msgs })) : [{ key: 'admin', msgs: playerPrivateMsgs }];
     for (const conv of conversations) {
       if (displayState[conv.key]?.hiddenMessageIds && !conversationIsHidden(displayState[conv.key], conv.msgs)) {
         const result = updateMessageDisplay(account, conv.key, 'reveal');
@@ -488,14 +498,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
   }, [currentUser?.username, setMessages]);
 
   const handleHideConversation = (partnerName?: string) => {
-    const msgs = isAdmin ? adminConversations.find(conv => conv.username === partnerName)?.msgs || [] : playerPrivateMsgs;
+    const msgs = isAdmin ? adminConversations.find(conv => conv.key === partnerName)?.msgs || [] : playerPrivateMsgs;
     markMessagesAsRead(msgs.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id));
     changeConversationDisplay(conversationKey(partnerName), 'hide', msgs);
   };
 
   const handleClearScreen = () => {
     const conversations = isAdmin
-      ? adminConversations.map(conv => ({ key: conversationKey(conv.username), messages: conv.msgs }))
+      ? adminConversations.map(conv => ({ key: conversationKey(conv.key), messages: conv.msgs }))
       : [{ key: 'admin', messages: playerPrivateMsgs }];
     markMessagesAsRead(conversations.flatMap(conv => conv.messages.filter(m => !m.read && m.senderName !== currentUser?.username && m.senderId !== currentUser?.id).map(m => m.id)));
     const result = hideMessageConversations(account, conversations);
@@ -503,9 +513,10 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setDisplayNotice(result.persisted ? '' : '本地保存失败，此次显示设置仅在当前页面有效。');
   };
 
-  const openConversation = (partnerName?: string) => {
-    changeConversationDisplay(conversationKey(partnerName), 'reveal');
+  const openConversation = (partnerName?: string, partnerId?: string) => {
+    changeConversationDisplay(conversationKey(partnerId ? `id:${partnerId}` : partnerName), 'reveal');
     setSelectedChatPlayer(partnerName || null);
+    setSelectedRecipientId(partnerId || null);
     setReplyText('');
     setInPrivateChatDetail(true);
   };
@@ -519,16 +530,20 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     markMessagesAsRead(unreadIds);
   };
 
+  const messageRequestRef = useRef(0);
   const fetchMessagesData = useCallback(async (silent = false) => {
+    if (document.hidden || !isActive) return;
+    const requestId = ++messageRequestRef.current;
     if (!silent) setMessagesLoading(true);
     try {
       const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch('/api/messages', {
+      const full = activeView === 'messages' || activeView === 'private_chat';
+      const res = await fetch(full ? '/api/messages' : '/api/messages?summary=1', {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!res.ok) return;
       const data = await safeFetchJson(res);
-      if (currentAccountRef.current !== account) return;
+      if (currentAccountRef.current !== account || requestId !== messageRequestRef.current) return;
       if (data?.messages) {
         const readMsgs = readMessageIds(currentUser?.username || 'user');
         setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(messageReadKey(m)) })));
@@ -539,19 +554,20 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       if (data?.allPlayers && Array.isArray(data.allPlayers)) {
         setAllPlayerNames(data.allPlayers);
       }
+      if (Array.isArray(data?.recipients)) setRecipients(data.recipients);
     } catch (err) {
       console.error('Fetch messages error:', err);
     } finally {
-      if (!silent && currentAccountRef.current === account) setMessagesLoading(false);
+      if (currentAccountRef.current === account && requestId === messageRequestRef.current) setMessagesLoading(false);
     }
-  }, [account, currentUser?.username, setMessages]);
+  }, [account, currentUser?.username, setMessages, isActive, activeView]);
 
-  // 定时自动同步消息 (每3秒)，保证私信及时显示
+  // Full messages only while viewing them; elsewhere poll lightweight unread metadata.
   useEffect(() => {
     fetchMessagesData(false);
     const interval = setInterval(() => {
       fetchMessagesData(true);
-    }, 3000);
+    }, activeView === 'messages' || activeView === 'private_chat' ? 3000 : 15000);
     return () => clearInterval(interval);
   }, [fetchMessagesData]);
 
@@ -587,7 +603,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
           body: JSON.stringify({
             title: '私信回复',
             content: replyText.trim(),
-            targetUserId: selectedChatPlayer
+            targetUserId: selectedRecipientId || selectedChatPlayer
           })
         });
         const data = await safeFetchJson(res);
@@ -783,11 +799,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setErrorText('');
     setSuccessText('');
 
-    if (currentUser?.isGuest) {
-      setErrorText('游客无法修改资料，请注册正式账号。');
-      return;
-    }
-
     if (!username.trim() && !password.trim()) {
       setErrorText('尚未修改任何内容。');
       return;
@@ -816,6 +827,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
 
       setSuccessText('修改成功！');
       localStorage.setItem('catan_auth_token', data.token);
+      if (data.user.isGuest) localStorage.setItem('catan_guest_proof', data.token);
       localStorage.setItem('catan_player_name', data.user.username);
       syncSessionToEntry(data.token, data.user.username);
       setOldPassword('');
@@ -1067,6 +1079,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                {currentUser.isGuest && <p className="break-all text-xs text-slate-400">游客 ID：{currentUser.id}</p>}
                 <div className="group">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-1 block group-focus-within:text-indigo-500 transition-colors">
                     游戏昵称
@@ -1078,13 +1091,13 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                       value={username}
                       onChange={e => setUsername(e.target.value)}
                       placeholder="修改昵称"
-                      disabled={currentUser.isGuest}
+                      maxLength={currentUser.isGuest ? 30 : undefined}
                       className="w-full bg-slate-50 border border-slate-100 pl-10 pr-3 py-3 rounded-xl outline-none font-medium transition-all focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 disabled:opacity-50 text-sm"
                     />
                   </div>
                 </div>
 
-                <div className="group">
+                {!currentUser.isGuest && <><div className="group">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-1 flex justify-between items-center group-focus-within:text-indigo-500 transition-colors">
                     <span>原密码 (修改必填)</span>
                     <button 
@@ -1127,10 +1140,11 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                     />
                   </div>
                 </div>
+                </>}
 
                 <button 
                   type="submit" 
-                  disabled={loading || currentUser.isGuest}
+                  disabled={loading}
                   className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] transition-all flex items-center justify-center gap-2 text-sm"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : '保存修改'}
@@ -1166,6 +1180,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               className="space-y-6"
             >
               <AdminDashboard 
+                onPrivateMessage={user => { setActiveView('private_chat'); openConversation(user.username, user.id); }}
                 onClose={() => {}} 
                 onLogout={onLogout || (() => {})}
                 inline={true}
@@ -1415,11 +1430,13 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                 className="space-y-3 font-sans py-2"
               >
                 {displayNotice && <p role="status" className="text-xs text-amber-700">{displayNotice}</p>}
+                {isAdmin && <input aria-label="搜索私信对象" placeholder="搜索玩家、游客名称或 ID" value={recipientSearch} onChange={event => setRecipientSearch(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" />}
                 <select aria-label="选择玩家发起私信" value="" onChange={event => {
-                  if (event.target.value) openConversation(isAdmin ? event.target.value : undefined);
+                  const recipient = recipients.find(item => item.id === event.target.value);
+                  if (event.target.value) openConversation(isAdmin ? recipient?.username || event.target.value : undefined, recipient?.id);
                 }} className="w-full bg-white border border-slate-200 text-indigo-700 text-sm font-bold rounded-lg px-3 py-3 outline-none focus:border-indigo-500">
                   <option value="" disabled>选择玩家发起私信</option>
-                  {(isAdmin ? [...new Set(allPlayerNames)].filter(name => name && name !== currentUser?.username) : [adminDisplayName]).map(name => (
+                  {isAdmin && recipients.length > 0 ? recipients.filter(item => `${item.username} ${item.id}`.toLowerCase().includes(recipientSearch.trim().toLowerCase())).map(item => <option key={item.id} value={item.id}>{item.username}（{item.isGuest ? '游客' : '玩家'} · {item.id}）</option>) : (isAdmin ? [...new Set(allPlayerNames)].filter(name => name && name !== currentUser?.username && name.toLowerCase().includes(recipientSearch.toLowerCase())) : [adminDisplayName]).map(name => (
                     <option key={name} value={name}>{name}{!isAdmin ? '（管理员）' : ''}</option>
                   ))}
                 </select>
@@ -1473,7 +1490,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                         const visibleMsgs = conv.msgs;
                         const lastMsg = visibleMsgs[visibleMsgs.length - 1];
                         return (
-                          <ConversationRow key={conv.username} name={conv.username} onOpen={() => openConversation(conv.username)} onHide={() => handleHideConversation(conv.username)}>
+                          <ConversationRow key={conv.key} name={conv.username} onOpen={() => openConversation(conv.username, conv.id)} onHide={() => handleHideConversation(conv.key)}>
                           <div className="flex items-center gap-3.5 min-w-0 flex-1">
                             <div className="relative shrink-0">
                               <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
@@ -1709,7 +1726,6 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
               
               <button 
                 onClick={() => setActiveView('edit')} 
-                disabled={currentUser.isGuest}
                 className="w-full bg-white py-3 px-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-colors disabled:opacity-50 disabled:hover:border-slate-100"
               >
                 <div className="flex items-center gap-3">

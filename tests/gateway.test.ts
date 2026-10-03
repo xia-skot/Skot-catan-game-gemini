@@ -62,6 +62,48 @@ test('public entry falls back to the default game site when KV is not bound', as
   assert.match(await response.text(), /skot-game01\.onrender\.com/);
 });
 
+test('automatic routing cannot replace a working config without an eligible site; fixed recovery remains available', async () => {
+  const env = environment(), now = Date.now(), month = new Date(now).toISOString().slice(0, 7);
+  const automatic = { ...config, enabled: false, bandwidth: { enabled: true, quotaGB: 5, reserveGB: 0.7 } };
+  await env.ROUTING.put('routing', JSON.stringify(config));
+  const save = (value: unknown) => worker.fetch(new Request('https://entry.example/api/admin/config', {
+    method: 'PUT', headers: { Authorization: `Bearer ${env.GATEWAY_ADMIN_TOKEN}` }, body: JSON.stringify(value),
+  }), env);
+  const row = { id: 'test', origin: config.sites.early, usedGB: 1, observedGB: 1, complete: true, healthy: true, checkedAt: now, measuredAt: now };
+  for (const invalid of [null, { ...row, complete: false }, { ...row, healthy: false }, { ...row, error: 'API failure' },
+    { ...row, checkedAt: now - 7200000 }, { ...row, measuredAt: now - 14400000 }, { ...row, usedGB: 4.3 }, { ...row, origin: 'https://other.onrender.com' }]) {
+    await env.ROUTING.put(`bandwidth:snapshot:${month}`, JSON.stringify(invalid ? { month, checkedAt: now, rows: [invalid] } : null));
+    const response = await save(automatic);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json() as any).code, 'BANDWIDTH_NOT_READY');
+    assert.deepEqual(JSON.parse((await env.ROUTING.get('routing'))!), config);
+    assert.equal((await worker.fetch(new Request('https://entry.example/api/route'), env)).status, 200);
+  }
+  await env.ROUTING.put(`bandwidth:snapshot:${month}`, JSON.stringify({ month, checkedAt: now, rows: [row] }));
+  assert.equal((await save(automatic)).status, 200);
+  await env.ROUTING.put(`bandwidth:snapshot:${month}`, 'null');
+  assert.equal((await worker.fetch(new Request('https://entry.example/api/route'), env)).status, 503);
+  assert.equal((await save({ ...automatic, bandwidth: { ...automatic.bandwidth, enabled: false } })).status, 200);
+  assert.equal((await worker.fetch(new Request('https://entry.example/api/route'), env)).status, 200);
+});
+
+test('game API preserves the actionable automatic-routing rejection', async () => {
+  const app = express(); app.use(express.json());
+  registerGatewayRoutes(app, (_req, _res, next) => next(), (_req, _res, next) => next(), {
+    url: 'https://entry.example', token: 'test-private-token-at-least-32-characters',
+    fetcher: (async () => Response.json({ code: 'BANDWIDTH_NOT_READY' }, { status: 409 })) as typeof fetch,
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/admin/gateway`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
+    });
+    assert.equal(response.status, 409);
+    assert.match((await response.json() as any).error, /原入口配置保持不变/);
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
 test('Worker reports configuration storage failures without redirecting to a guessed destination', async () => {
   const env = environment();
   env.ROUTING.get = async () => { throw new Error('unavailable'); };

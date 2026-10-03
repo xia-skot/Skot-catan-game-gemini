@@ -1,0 +1,30 @@
+.catan-social-surface { position: fixed; left: 0; top: 0; transform-origin: top left; pointer-events: none; z-index: 2147483500; }
+.catan-reaction-menu { position: absolute; pointer-events: auto; transform: translateX(-50%); z-index: 3; width: min(328px, calc(100% - 24px)); padding: 12px; border: 1px solid #d6e3df; border-radius: 8px; background: #fffffff5; box-shadow: 0 12px 32px #183c3826, 0 2px 6px #183c3810; color: #33454a; letter-spacing: 0; }
+.reaction-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 8px; font-size: 12px; font-weight: 700; }
+.reaction-menu-heading > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reaction-menu-heading > button { padding: 4px; flex-shrink: 0; }
+.reaction-menu-options { display: flex; justify-content: space-around; gap: 3px; }
+.reaction-menu-options button { flex: 1; min-width: 0; height: 76px; padding: 5px 2px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 11px; transition: background .15s, transform .15s; }
+.reaction-menu-options button:hover, .reaction-menu-options button:focus-visible { background: #edf6f2; transform: translateY(-2px); }
+.reaction-menu-options button:disabled { opacity: .4; }
+.reaction-menu-options svg { width: 48px; height: 48px; flex-shrink: 0; filter: drop-shadow(0 2px 1px #33454a18); }
+.reaction-menu-options.captain-emote-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.reaction-menu-options .captain-emote { width: 48px; height: 48px; flex-shrink: 0; object-fit: contain; }
+.captain-emote { user-select: none; object-fit: contain; }
+.catan-reaction-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.catan-reaction-flight { position: absolute; width: 56px; height: 56px; filter: drop-shadow(0 3px 2px #183c3830); }
+.catan-reaction-flight.is-emote { width: 48px; height: 48px; }
+.catan-reaction-flight > svg { width: 100%; height: 100%; overflow: visible; }
+.catan-reaction-flight > .captain-emote { width: 100%; height: 100%; }
+.reaction-sender-name { display: block; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; background: #fff; padding: 2px 4px; font-size: 10px; color: #33454a; text-align: center; }
+.reaction-sparkles { position: absolute; inset: -3px; background: radial-gradient(ellipse at center, #f3cc69 0 35%, transparent 42%) 0 12px/5px 8px, radial-gradient(ellipse at center, #ea91a5 0 35%, transparent 42%) 48px 35px/7px 5px, radial-gradient(ellipse at center, #82bea5 0 35%, transparent 42%) 30px 0/5px 7px; background-repeat: no-repeat; animation: catan-sparkle 1s ease-out both; }
+.has-landed .reaction-splat { transform-origin: center; animation: catan-splat .4s ease-out both; }
+.has-landed[data-reaction-kind="giggle"] > svg, .has-landed[data-reaction-kind="handshake"] > svg { animation: catan-chuckle .55s ease-in-out 3; }
+.has-landed[data-reaction-kind="giggle"] > img, .has-landed[data-reaction-kind="laugh"] > img { animation: catan-chuckle .55s ease-in-out 3; }
+.has-landed[data-reaction-kind="flower"] > svg { transform-origin: 50% 90%; animation: catan-chuckle .8s ease-in-out 2; }
+@keyframes catan-splat { 0% { transform: scale(.45, 1.2); } 65% { transform: scale(1.15, .85); } 100% { transform: scale(1); } }
+@keyframes catan-chuckle { 0%, 100% { transform: rotate(-4deg); } 50% { transform: translateY(-2px) rotate(4deg); } }
+.has-landed .reaction-steam { animation: catan-steam 1.2s ease-out both; }
+@keyframes catan-sparkle { from { transform: scale(.6) rotate(0); opacity: 1; } to { transform: scale(1.6) rotate(25deg); opacity: 0; } }
+@keyframes catan-steam { from { transform: translateY(0); opacity: .7; } to { transform: translateY(-5px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .reaction-menu-options button { transition: none; } .catan-social-surface * { animation: none !important; } }

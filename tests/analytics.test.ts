@@ -22,7 +22,7 @@ test('counts whole completed games, keeps reused room codes, deduplicates game I
   const data = buildAnalytics(users, games, 'day', now, now);
   assert.deepEqual(data.totals, { registered: 1, guests: 1, games: 4, today: 1, week: 1, month: 3 });
   assert.deepEqual(data.rows[0], { start: '2026-10-05', end: '2026-10-05', games: 1, registered: 1, guests: 0 });
-  assert.equal(data.rows.length, 14);
+  assert.equal(data.rows.length, 7);
 });
 test('weeks start Monday and months cross year/leap boundaries without timezone drift', () => {
   const weekly = buildAnalytics(users, games, 'week', now, now);

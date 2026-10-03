@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, User, Lock, ArrowRight, Loader2, Database, RotateCcw, X, Sparkles } from 'lucide-react';
 import { socketService } from '../socketService';
-import { syncSessionToEntry } from '../entrySessionBridge';
+import { syncSessionToEntry, guestDeviceKey, waitForEntrySession } from '../entrySessionBridge';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -150,17 +150,18 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
     try {
       const finalName = guestNickname.trim() || generateRandomGuestName();
-      const existingGuestId = localStorage.getItem('catan_guest_id');
+      await waitForEntrySession();
       
       const res = await fetch('/api/guest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: finalName, guestId: existingGuestId })
+        body: JSON.stringify({ username: finalName, deviceKey: guestDeviceKey(), guestProof: localStorage.getItem('catan_guest_proof') || localStorage.getItem('catan_auth_token') })
       });
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error || '游客登录失败');
       
       localStorage.setItem('catan_guest_id', data.user.id);
+      localStorage.setItem('catan_guest_proof', data.token);
       localStorage.setItem('catan_auth_token', data.token);
       localStorage.setItem('catan_player_name', data.user.username);
       syncSessionToEntry(data.token, data.user.username);

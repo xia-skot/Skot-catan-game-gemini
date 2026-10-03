@@ -51,6 +51,7 @@ export function SoundSettingsModal({ isOpen, onClose, isAdmin = false, inline = 
   const [equalizer, setEqualizer] = useState<SoundEqualizer>(audioService.sfxEqualizer);
 
   const dragControls = useDragControls();
+  const dragBoundsRef = React.useRef<HTMLDivElement>(null);
   const lastPreviewRef = React.useRef<{ [key: string]: number }>({});
   const currentPreviewTypeRef = React.useRef<SoundType | null>(null);
 
@@ -303,6 +304,7 @@ export function SoundSettingsModal({ isOpen, onClose, isAdmin = false, inline = 
 
   return (
     <div 
+      ref={dragBoundsRef}
       style={containerStyle}
       className={`bg-black/50 backdrop-blur-sm pointer-events-auto flex ${isMobileDevice ? 'items-stretch p-0' : 'items-center justify-center md:p-4'}`}
       onPointerDown={(e) => e.stopPropagation()}
@@ -334,7 +336,7 @@ export function SoundSettingsModal({ isOpen, onClose, isAdmin = false, inline = 
         drag={typeof window !== 'undefined' && window.innerWidth >= 640 && !isMobileDevice}
         dragListener={false}
         dragControls={dragControls}
-        dragConstraints={gameContainerRef}
+        dragConstraints={dragBoundsRef}
         dragElastic={0}
         dragMomentum={false}
         onPointerDown={(e) => e.stopPropagation()}

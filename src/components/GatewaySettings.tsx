@@ -83,6 +83,8 @@ export function GatewaySettings() {
             <p>工作区服务累计估算：{row.usedGB.toFixed(3)} / {quota} GB{row.complete && !row.error ? `，剩余约 ${Math.max(0, quota - row.usedGB).toFixed(3)} GB` : '（数据未齐，不显示剩余额度）'}</p>
             <p>{bandwidth?.target?.origin === row.origin ? '当前选中 · ' : ''}{row.healthy ? '游戏站可用' : '游戏站尚未通过健康检查'}{row.checkedAt ? ` · 查询于 ${new Date(row.checkedAt).toLocaleString('zh-CN')}` : ''}</p>
             {row.error && <p className="text-red-600">{row.error}</p>}
+            {(!row.checkedAt || Date.now() - row.checkedAt > 3600000 || bandwidth.snapshot.month !== new Date().toISOString().slice(0, 7)) && <p className="text-amber-700">采集状态已过期，暂不参与自动切换。</p>}
+            {row.complete && row.usedGB >= quota - (config.bandwidth?.reserveGB ?? 0.7) && <p className="text-amber-700">已达到预留流量阈值，暂不参与自动切换。</p>}
             {(!row.measuredAt || Date.now() - row.measuredAt > 10800000) && <p className="text-amber-700">平台尚未提供近期带宽数据，暂不参与自动切换。</p>}
             {!row.complete && <p className="text-amber-700">缺少月初或中断期间记录，请从 Render Billing 补录本月总用量。</p>}
             <div className="flex flex-wrap gap-2 items-center"><label>账单本月总用量（GB）<input aria-label={`游戏站${index + 1}账单用量`} type="number" min={row.observedGB} step="any" value={totals[row.id] ?? ''} onChange={event => setTotals({ ...totals, [row.id]: event.target.value })} className="ml-2 w-24 border rounded p-1" /></label><button type="button" disabled={busy || !totals[row.id]?.trim()} onClick={() => calibrate(row.id)} className="border rounded px-2 py-1 disabled:opacity-50">补录</button></div>

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail, ArrowUp, ArrowDown, Trophy, Dices, ChartNoAxesCombined, ChevronRight } from 'lucide-react';
-import { AdminDataCenter, AdminGuestList, DatabaseStorageSettings } from './AdminDataCenter';
+import { Users, X, RotateCw, Trash2, Edit2, Save, Settings, Loader2, MessageSquare, Info, Check, User, Sliders, Send, ArrowLeft, Mail, ArrowUp, ArrowDown, Trophy, Dices, ChartNoAxesCombined, ChevronRight, Database } from 'lucide-react';
+import { AdminDataCenter, DatabaseStorageSettings } from './AdminDataCenter';
+import { AdminOnlinePlayers } from './OnlineFeatures';
 import { UserProfileModal } from './UserProfileModal';
 import { GatewaySettings } from './GatewaySettings';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
 import { DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, sortAdminPlayers, type PlayerSortField, type SortDirection } from '../../shared/leaderboard';
 
-export function AdminDashboard({ onLogout, onClose, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests' }) {
+export function AdminDashboard({ onLogout, onClose, onPrivateMessage, inline = false, initialSection = 'menu' }: { onLogout: () => void, onClose: () => void, onPrivateMessage?: (user: { id: string; username: string }) => void, inline?: boolean, initialSection?: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests' }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -23,181 +24,27 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   const [leaderboardSettingsSaving, setLeaderboardSettingsSaving] = useState(false);
   const [leaderboardSettingsMessage, setLeaderboardSettingsMessage] = useState('');
   const [leaderboardSettingsError, setLeaderboardSettingsError] = useState('');
-  const sortedPlayers = React.useMemo(() => sortAdminPlayers<any>(data?.allUsers || data?.latestUsers || [], playerSort, sortDirection), [data, playerSort, sortDirection]);
+  const [playerSearch, setPlayerSearch] = useState('');
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
   // Section state: 'menu' | 'system' | 'users' | 'feedbacks' | 'messages'
-  const [activeSection, setActiveSection] = useState<'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests'>(initialSection);
+  const [activeSection, setActiveSection] = useState<'menu' | 'system' | 'users' | 'feedbacks' | 'messages' | 'analytics' | 'guests' | 'online' | 'gateway' | 'storage'>(initialSection);
   const [sectionParent, setSectionParent] = useState<'menu' | 'analytics'>('menu');
+  const listUsers = activeSection === 'guests' ? (data?.allGuests || []) : (data?.allUsers || data?.latestUsers || []);
+  const sortedPlayers = React.useMemo(() => sortAdminPlayers<any>(listUsers.filter((u: any) => `${u.username} ${u._id}`.toLowerCase().includes(playerSearch.trim().toLowerCase())), playerSort, sortDirection), [listUsers, playerSearch, playerSort, sortDirection]);
+  useEffect(() => { setPlayerSearch(''); }, [activeSection]);
 
   const [inspectingUser, setInspectingUser] = useState<any | null>(null);
   const [inspectingLoading, setInspectingLoading] = useState(false);
 
-  // Admin Private Messages State
-  const [allAdminMessages, setAllAdminMessages] = useState<any[]>([]);
-  const [adminMessagesLoading, setAdminMessagesLoading] = useState(false);
-  const [selectedChatPlayer, setSelectedChatPlayer] = useState<{ id: string; username: string } | null>(null);
-  const [adminReplyText, setAdminReplyText] = useState('');
-  const [sendingAdminReply, setSendingAdminReply] = useState(false);
-  const adminChatEndRef = React.useRef<HTMLDivElement>(null);
-
-  useBackHandler(!!confirmDeleteId || !!inspectingUser || !!selectedChatPlayer || activeSection !== 'menu' || !inline, () => {
+  useBackHandler(!!confirmDeleteId || !!inspectingUser || activeSection !== 'menu' || !inline, () => {
     if (confirmDeleteId) setConfirmDeleteId(null);
     else if (inspectingUser) setInspectingUser(null);
-    else if (selectedChatPlayer) setSelectedChatPlayer(null);
     else if (activeSection !== 'menu') { setActiveSection(sectionParent); setSectionParent('menu'); }
     else onClose();
     return true;
   }, 40);
-
-  const fetchAdminMessages = async () => {
-    setAdminMessagesLoading(true);
-    try {
-      const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch('/api/messages', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const json = await safeFetchJson(res);
-        if (json?.messages) {
-          setAllAdminMessages(json.messages);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAdminMessagesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAdminMessages();
-  }, []);
-
-  useEffect(() => {
-    let timer: any;
-    if (activeSection === 'messages') {
-      fetchAdminMessages();
-      timer = setInterval(fetchAdminMessages, 5000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [activeSection]);
-
-  const adminPlayerConversations = React.useMemo(() => {
-    const privateList = allAdminMessages.filter(m => m.type === 'private' || Boolean(m.targetUserId));
-    const map: { [key: string]: { id: string; username: string; messages: any[]; lastMsg: any } } = {};
-
-    // 预先填入所有已注册玩家，不论对方有没有发消息，统一显示对方昵称
-    const usersList = data?.allUsers || data?.latestUsers || [];
-    usersList.forEach((u: any) => {
-      const uName = (u.username || '').trim();
-      if (uName && u.role !== 'admin' && !u.isGuest) {
-        map[uName] = {
-          id: u._id || uName,
-          username: uName,
-          messages: [],
-          lastMsg: null
-        };
-      }
-    });
-
-    privateList.forEach(msg => {
-      let playerId = '';
-      let playerUsername = '';
-
-      const isFromAdmin = msg.senderName === '管理员' || msg.senderId === 'admin';
-      if (isFromAdmin) {
-        playerId = msg.targetUserId || msg.targetUserName || 'unknown';
-        playerUsername = msg.targetUserName || msg.targetUserId || '未知玩家';
-      } else {
-        playerId = msg.senderId || msg.senderName || 'unknown';
-        playerUsername = msg.senderName || '未知玩家';
-      }
-
-      const key = playerUsername;
-      if (!map[key]) {
-        map[key] = {
-          id: playerId,
-          username: playerUsername,
-          messages: [],
-          lastMsg: null
-        };
-      }
-      map[key].messages.push(msg);
-    });
-
-    Object.values(map).forEach(conv => {
-      conv.messages.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      conv.lastMsg = conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null;
-    });
-
-    return Object.values(map).sort((a, b) => {
-      const timeA = a.lastMsg?.createdAt || 0;
-      const timeB = b.lastMsg?.createdAt || 0;
-      if (timeA && timeB) return timeB - timeA;
-      if (timeA) return -1;
-      if (timeB) return 1;
-      return a.username.localeCompare(b.username);
-    });
-  }, [allAdminMessages, data?.allUsers, data?.latestUsers]);
-
-  const activePlayerChatMessages = React.useMemo(() => {
-    if (!selectedChatPlayer) return [];
-    return allAdminMessages.filter(m => {
-      const isPrivate = m.type === 'private' || Boolean(m.targetUserId);
-      if (!isPrivate) return false;
-
-      const isFromTargetPlayer = (m.senderId === selectedChatPlayer.id || m.senderName === selectedChatPlayer.username);
-      const isToTargetPlayer = (m.targetUserId === selectedChatPlayer.id || m.targetUserName === selectedChatPlayer.username);
-
-      return isFromTargetPlayer || isToTargetPlayer;
-    }).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  }, [allAdminMessages, selectedChatPlayer]);
-
-  useEffect(() => {
-    if (selectedChatPlayer) {
-      setTimeout(() => {
-        adminChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    }
-  }, [selectedChatPlayer, activePlayerChatMessages.length]);
-
-  const handleSendAdminPrivateMsg = async () => {
-    if (!selectedChatPlayer || !adminReplyText.trim() || sendingAdminReply) return;
-    setSendingAdminReply(true);
-    try {
-      const token = localStorage.getItem('catan_auth_token');
-      const res = await fetch('/api/admin/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          content: adminReplyText.trim(),
-          targetUserId: selectedChatPlayer.id || selectedChatPlayer.username
-        })
-      });
-      const resJson = await safeFetchJson(res);
-      if (res.ok && resJson?.success && resJson?.message) {
-        setAllAdminMessages(prev => [...prev, resJson.message]);
-        setAdminReplyText('');
-        setTimeout(() => {
-          adminChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
-      } else {
-        alert(resJson?.error || '发送私信失败');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('发送私信失败，请检查网络');
-    } finally {
-      setSendingAdminReply(false);
-    }
-  };
 
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [feedbacksLoading, setFeedbacksLoading] = useState(false);
@@ -499,8 +346,6 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Sub-View 1: 系统设置
   const renderSystemContent = () => (
     <div className="space-y-4 font-sans">
-      <GatewaySettings />
-      <DatabaseStorageSettings />
       <form onSubmit={saveLeaderboardSettings} className="space-y-3 border-b border-slate-200 pb-4">
         <h4 className="flex items-center gap-2 text-xs font-bold text-slate-700"><Trophy size={14} className="text-amber-600" />月度排行榜</h4>
         <div className="flex flex-wrap items-center gap-3">
@@ -664,7 +509,8 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
   // Sub-View 2: 玩家名单
   const renderUsersContent = () => (
     <div className="space-y-3 font-sans">
-      <dl data-admin-player-totals className="grid grid-cols-2 gap-4 border-b border-slate-200 px-1 pb-3">
+      <dl data-admin-player-totals className="grid grid-cols-3 gap-3 border-b border-slate-200 px-1 pb-3">
+        <div><dt className="text-xs text-slate-500">玩家数量</dt><dd data-admin-user-count className="mt-1 text-xl font-bold text-slate-800 tabular-nums">{data?.stats?.users ?? '—'}</dd></div>
         <div title="累计游客账号数量">
           <dt className="flex items-center gap-1.5 text-xs text-slate-500"><User size={14} className="text-indigo-500" />游客数量</dt>
           <dd data-admin-guest-count className="mt-1 text-xl font-bold text-slate-800 tabular-nums">{Number.isFinite(data?.stats?.guests) ? data.stats.guests.toLocaleString('zh-CN') : '未提供'}</dd>
@@ -674,8 +520,10 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
           <dd data-admin-game-count className="mt-1 text-xl font-bold text-slate-800 tabular-nums">{Number.isFinite(data?.stats?.games) ? data.stats.games.toLocaleString('zh-CN') : '未提供'}</dd>
         </div>
       </dl>
+      <h4 className="text-sm font-semibold text-slate-700">{activeSection === 'guests' ? '游客名单' : '玩家名单'}</h4>
+      <input aria-label={activeSection === 'guests' ? '搜索游客' : '搜索玩家'} placeholder="搜索名称或账号 ID" value={playerSearch} onChange={event => setPlayerSearch(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" />
       <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-1">
-        <span className="text-xs font-bold text-slate-500">共计 {(data?.allUsers || data?.latestUsers)?.length || 0} 位玩家</span>
+        <span className="text-xs font-bold text-slate-500">共计 {listUsers.length} 个账号 · 匹配 {sortedPlayers.length} 个</span>
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="admin-player-sort">玩家排序字段</label>
           <select id="admin-player-sort" value={playerSort} onChange={event => setPlayerSort(event.target.value as PlayerSortField)} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">
@@ -693,12 +541,12 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
         {sortedPlayers.map((u: any) => {
           const isEditing = editingUsers[u._id] !== undefined;
           return (
-            <div key={u._id} className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 flex flex-wrap gap-y-2 items-center justify-between group transition-all" data-admin-player={u._id}>
-              <div className="flex flex-1 items-center gap-3 min-w-0">
+            <div key={u._id} className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-lg border border-slate-100 flex flex-col sm:flex-row gap-y-2 items-center justify-between group transition-all" data-admin-player={u._id} data-guest-id={u.isGuest ? u._id : undefined}>
+              <div className="flex w-full sm:w-auto sm:flex-1 items-center gap-3 min-w-0">
                 <div 
-                  onClick={() => handleOpenUserProfile(u.username, String(u._id))}
+                  onClick={() => { if (!u.isGuest) handleOpenUserProfile(u.username, String(u._id)); }}
                   className="w-9 h-9 rounded-xl bg-indigo-100 hover:bg-indigo-200 flex items-center justify-center shrink-0 border border-indigo-200/60 cursor-pointer transition-colors"
-                  title="点击查看玩家信息"
+                  title={u.isGuest ? '游客账号' : '点击查看玩家信息'}
                 >
                   <span className="text-xs font-black text-indigo-700">{u.username.charAt(0).toUpperCase()}</span>
                 </div>
@@ -715,14 +563,15 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                     ) : (
                       <span 
                         className="truncate cursor-pointer hover:text-indigo-600 transition-colors"
-                        onClick={() => handleOpenUserProfile(u.username, String(u._id))}
-                        title="点击查看玩家战绩"
+                        onClick={() => { if (!u.isGuest) handleOpenUserProfile(u.username, String(u._id)); }}
+                        title={u.isGuest ? '游客账号' : '点击查看玩家战绩'}
                       >
                         {u.username}
                       </span>
                     )}
                     {u.role === 'admin' && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.2 rounded-full font-bold">管理员</span>}
                   </div>
+                  <div className="mt-1 break-all text-[10px] text-slate-400">ID: {String(u._id)}</div>
                   <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-medium">
                     <span>场次: <span className="font-bold text-slate-700">{u.totalGames || 0}</span></span>
                     <span>胜率: <span className="font-bold text-emerald-600">{u.winRate || 0}%</span></span>
@@ -732,7 +581,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                 </div>
               </div>
               
-              <div className="flex items-center gap-1 shrink-0 ml-2">
+              <div className="flex w-full justify-end items-center gap-1 shrink-0 sm:ml-2 sm:w-auto">
                 {isEditing ? (
                   <button onClick={() => saveEdit(u._id)} disabled={savingId === u._id} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors bg-white shadow-xs border border-emerald-100">
                     {savingId === u._id ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
@@ -748,8 +597,7 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                     </button>
                     <button 
                       onClick={() => {
-                        setSelectedChatPlayer({ id: u._id || u.username, username: u.username });
-                        setActiveSection('messages');
+                        onPrivateMessage?.({ id: String(u._id), username: u.username });
                       }}
                       className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-white rounded-xl transition-all border border-transparent hover:border-slate-200"
                       title="与该玩家发私信"
@@ -778,202 +626,13 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
             </div>
           );
         })}
-        {(!data?.allUsers && !data?.latestUsers || (data?.allUsers || data?.latestUsers)?.length === 0) && (
-          <p className="text-xs text-slate-400 font-medium py-6 text-center">暂无玩家数据</p>
+        {sortedPlayers.length === 0 && (
+          <p className="text-xs text-slate-400 font-medium py-6 text-center">{activeSection === 'guests' ? '暂无匹配的游客' : '暂无匹配的玩家'}</p>
         )}
       </div>
     </div>
   );
 
-  // Sub-View 4: 玩家私信
-  const renderMessagesContent = () => (
-    <div className="space-y-4 font-sans">
-      {!selectedChatPlayer ? (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
-            <div>
-              <h4 className="text-xs font-black text-slate-800">玩家私信会话列表</h4>
-              <p className="text-[10px] text-slate-400">列出已互通私信的玩家，也可直接选择任一玩家发私信</p>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <select 
-                onChange={(e) => {
-                  if (e.target.value) {
-                    const chosen = (data?.allUsers || data?.latestUsers)?.find((u: any) => u.username === e.target.value || u._id === e.target.value);
-                    if (chosen) {
-                      setSelectedChatPlayer({ id: chosen._id || chosen.username, username: chosen.username });
-                    }
-                    e.target.value = '';
-                  }
-                }}
-                className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold rounded-xl px-2.5 py-1 outline-none cursor-pointer hover:bg-indigo-100 transition-colors"
-              >
-                <option value="">+ 选择玩家发起私信</option>
-                {(data?.allUsers || data?.latestUsers)?.map((u: any) => (
-                  <option key={u._id || u.username} value={u.username}>
-                    {u.username}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {adminMessagesLoading ? (
-            <div className="py-12 flex justify-center text-indigo-500">
-              <Loader2 size={24} className="animate-spin" />
-            </div>
-          ) : adminPlayerConversations.length === 0 ? (
-            <div className="py-12 flex flex-col items-center justify-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 space-y-2">
-              <Mail className="w-8 h-8 opacity-40 text-indigo-500" />
-              <p className="font-bold text-slate-600">暂无任何玩家私信记录</p>
-              <p className="text-[11px] text-slate-400">您可以在【玩家名单】中点击某位玩家右侧的私信按钮发起对话。</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
-              {adminPlayerConversations.map((conv) => (
-                <div 
-                  key={conv.username}
-                  onClick={() => setSelectedChatPlayer({ id: conv.id, username: conv.username })}
-                  className="p-3.5 bg-white rounded-2xl border border-slate-200/80 hover:border-indigo-400 hover:shadow-md transition-all flex items-center justify-between cursor-pointer group active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                    <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
-                      {conv.username.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">
-                          {conv.username}
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                          {conv.lastMsg?.date || ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 truncate mt-1 font-medium">
-                        {conv.lastMsg?.content || '暂无消息'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* QQ Style Inline Chat View with Selected Player (在卡片容器内显示，界面不丢失) */
-        <motion.div 
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col h-[520px] font-sans"
-        >
-          {/* Header */}
-          <div className="bg-white border-b border-slate-200/80 px-4 py-3 text-slate-800 flex items-center justify-between shrink-0 shadow-xs">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-xs shrink-0">
-                {selectedChatPlayer.username.slice(0, 1).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <span className="text-sm font-black text-slate-800 truncate leading-tight block">
-                  {selectedChatPlayer.username}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1"><button
-              onClick={() => fetchAdminMessages()}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-              title="刷新私信记录"
-            >
-              <RotateCw size={14} className={adminMessagesLoading ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={requestAppBack} title="返回私信列表" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full"><ArrowLeft size={18} /></button></div>
-          </div>
-
-          {/* Messages Area */}
-          <div className="flex-1 p-3.5 bg-slate-50 overflow-y-auto space-y-3.5 no-scrollbar">
-            {activePlayerChatMessages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs font-medium space-y-1 py-12">
-                <div className="w-12 h-12 rounded-full bg-indigo-50/50 flex items-center justify-center text-indigo-400 mb-1">
-                  <MessageSquare size={22} />
-                </div>
-                <p className="font-bold text-slate-400 text-xs">暂无消息</p>
-              </div>
-            ) : (
-              activePlayerChatMessages.map((msg) => {
-                const isFromAdmin = msg.senderName === '管理员' || msg.senderId === 'admin';
-                return (
-                  <div 
-                    key={msg.id} 
-                    className={`flex flex-col ${isFromAdmin ? 'items-end' : 'items-start'} space-y-1`}
-                  >
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
-                      {!isFromAdmin && <span className="font-bold text-slate-600">{msg.senderName}</span>}
-                      <span>{msg.date}</span>
-                      {isFromAdmin && <span className="font-bold text-indigo-600">我(管理员)</span>}
-                    </div>
-
-                    <div className="flex items-start gap-2 max-w-[85%]">
-                      {!isFromAdmin && (
-                        <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200/60 flex items-center justify-center font-black text-[11px] shrink-0 shadow-2xs mt-0.5">
-                          {selectedChatPlayer.username.slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
-
-                      <div 
-                        className={`p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap break-words shadow-2xs font-medium ${
-                          isFromAdmin 
-                            ? 'bg-indigo-600 text-white rounded-tr-xs shadow-indigo-600/10' 
-                            : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs'
-                        }`}
-                      >
-                        {msg.content}
-                      </div>
-
-                      {isFromAdmin && (
-                        <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-black text-[11px] shrink-0 shadow-2xs mt-0.5">
-                          管
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            <div ref={adminChatEndRef} />
-          </div>
-
-          {/* Bottom Chat Input */}
-          <div className="p-3 bg-white border-t border-slate-200 shrink-0">
-            <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 focus-within:border-indigo-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-500/10 rounded-2xl p-2 transition-all">
-              <textarea 
-                value={adminReplyText}
-                onChange={(e) => setAdminReplyText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendAdminPrivateMsg();
-                  }
-                }}
-                placeholder=""
-                rows={2}
-                className="flex-1 bg-transparent border-0 text-xs text-slate-800 font-medium outline-none resize-none p-1 placeholder:text-slate-400"
-              />
-              <button
-                disabled={!adminReplyText.trim() || sendingAdminReply}
-                onClick={handleSendAdminPrivateMsg}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 disabled:opacity-40 disabled:active:scale-100 transition-all flex items-center gap-1.5 shrink-0"
-              >
-                {sendingAdminReply ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                发送
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </div>
-  );
 
   // Sub-View 3: 玩家反馈意见 (只显示玩家反馈列表)
   const renderFeedbacksContent = () => (
@@ -1023,8 +682,8 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
       <button onClick={() => setActiveSection('analytics')} className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 text-left shadow-sm hover:border-emerald-200">
         <ChartNoAxesCombined size={18} className="text-emerald-600" /><h3 className="text-sm font-bold text-slate-700">数据中心</h3><ChevronRight size={18} className="ml-auto text-slate-300" />
       </button>
-      <button onClick={() => setActiveSection('guests')} className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 text-left shadow-sm hover:border-indigo-200">
-        <User size={18} className="text-slate-400" /><h3 className="text-sm font-bold text-slate-700">游客名单</h3><ChevronRight size={18} className="ml-auto text-slate-300" />
+      <button onClick={() => setActiveSection('online')} className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 text-left shadow-sm hover:border-emerald-200">
+        <Users size={18} className="text-emerald-600" /><h3 className="text-sm font-bold text-slate-700">在线玩家</h3><ChevronRight size={18} className="ml-auto text-slate-300" />
       </button>
       {/* 1. 系统设置 */}
       <button 
@@ -1043,51 +702,6 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
         </div>
       </button>
 
-      {/* 2. 玩家名单 */}
-      <button 
-        onClick={() => setActiveSection('users')} 
-        className="w-full bg-white py-3.5 px-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <Users size={18} className="text-slate-400 group-hover:text-indigo-500 transition-colors" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-700 text-sm">玩家名单</h3>
-              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.2 rounded-full">
-                {(data?.allUsers || data?.latestUsers)?.length || 0} 人
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 font-medium">修改用户名、个人消息、删除账号</p>
-          </div>
-        </div>
-        <div className="text-slate-300 group-hover:text-indigo-400 transition-colors">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-        </div>
-      </button>
-
-      {/* 3. 玩家私信 */}
-      <button 
-        onClick={() => setActiveSection('messages')} 
-        className="w-full bg-white py-3.5 px-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:border-sky-100 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <Mail size={18} className="text-slate-400 group-hover:text-sky-500 transition-colors" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-700 text-sm">玩家私信</h3>
-              {adminPlayerConversations.length > 0 && (
-                <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.2 rounded-full border border-sky-100">
-                  {adminPlayerConversations.length} 个会话
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400 font-medium">管理员与不同玩家的一对一私信沟通</p>
-          </div>
-        </div>
-        <div className="text-slate-300 group-hover:text-sky-400 transition-colors">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-        </div>
-      </button>
 
       {/* 4. 玩家反馈意见 */}
       <button 
@@ -1170,20 +784,17 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                           {activeSection === 'system' && <><Sliders size={18} className="text-indigo-500" /> 系统设置</>}
                           {activeSection === 'users' && <><Users size={18} className="text-indigo-500" /> 玩家名单</>}
                           {activeSection === 'analytics' && <><ChartNoAxesCombined size={18} className="text-emerald-600" /> 数据中心</>}
+                          {activeSection === 'gateway' && <><Sliders size={18} className="text-indigo-500" /> 网址与流量</>}
+                          {activeSection === 'storage' && <><Database size={18} className="text-emerald-600" /> 数据库空间</>}
                           {activeSection === 'guests' && <><User size={18} className="text-indigo-500" /> 游客名单</>}
-                          {activeSection === 'messages' && <><Mail size={18} className="text-sky-500" /> 玩家私信管理</>}
+                          {activeSection === 'online' && <><Users size={18} className="text-emerald-600" /> 在线玩家</>}
                           {activeSection === 'feedbacks' && <><MessageSquare size={18} className="text-indigo-500" /> 玩家反馈意见</>}
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-1">{activeSection === 'users' && (
+                      <div className="flex items-center gap-1">{(activeSection === 'users' || activeSection === 'guests') && (
                         <button onClick={fetchStats} className="text-indigo-500 hover:bg-indigo-50 px-2.5 py-1 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold">
                           <RotateCw size={13} className={loading ? 'animate-spin' : ''} /> 刷新
-                        </button>
-                      )}
-                      {activeSection === 'messages' && (
-                        <button onClick={fetchAdminMessages} className="text-indigo-500 hover:bg-indigo-50 px-2.5 py-1 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold">
-                          <RotateCw size={13} className={adminMessagesLoading ? 'animate-spin' : ''} /> 刷新
                         </button>
                       )}
                       {activeSection === 'feedbacks' && (
@@ -1195,10 +806,11 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
                     </div>
 
                     {activeSection === 'system' && renderSystemContent()}
-                    {activeSection === 'users' && renderUsersContent()}
-                    {activeSection === 'analytics' && <AdminDataCenter onUsers={() => { setSectionParent('analytics'); setActiveSection('users'); }} onGuests={() => { setSectionParent('analytics'); setActiveSection('guests'); }} />}
-                    {activeSection === 'guests' && <AdminGuestList />}
-                    {activeSection === 'messages' && renderMessagesContent()}
+                    {(activeSection === 'users' || activeSection === 'guests') && renderUsersContent()}
+                    {activeSection === 'analytics' && <AdminDataCenter onUsers={() => { setSectionParent('analytics'); setActiveSection('users'); }} onGuests={() => { setSectionParent('analytics'); setActiveSection('guests'); }} onGateway={() => { setSectionParent('analytics'); setActiveSection('gateway'); }} onStorage={() => { setSectionParent('analytics'); setActiveSection('storage'); }} />}
+                    {activeSection === 'gateway' && <GatewaySettings />}
+                    {activeSection === 'storage' && <DatabaseStorageSettings />}
+                    {activeSection === 'online' && <AdminOnlinePlayers />}
                     {activeSection === 'feedbacks' && renderFeedbacksContent()}
                   </motion.div>
                 )}
@@ -1232,6 +844,6 @@ export function AdminDashboard({ onLogout, onClose, inline = false, initialSecti
     </div>
   );
   return inline && activeSection !== 'menu'
-    ? createPortal(<div className="app-screen app-safe-top bg-slate-50 z-[90000]" data-admin-section={activeSection} data-no-swipe><div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom,0px)]">{dashboard}</div></div>, document.body)
+    ? createPortal(<div className="app-screen app-safe-top bg-slate-50 z-[90000]" data-admin-section={activeSection} data-no-swipe><div key={activeSection} className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom,0px)]">{dashboard}</div></div>, document.body)
     : dashboard;
 }

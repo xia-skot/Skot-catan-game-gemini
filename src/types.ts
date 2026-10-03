@@ -41,6 +41,8 @@ export enum DevCardType {
 }
 
 export interface Player {
+  publicResourceCount?: number;
+  publicDevCardCount?: number;
   id: number;
   name: string;
   color: string;
@@ -85,6 +87,8 @@ export interface TradeOffer {
 }
 
 export interface GameState {
+  handsHidden?: boolean;
+  publicBankDevCardCount?: number;
   botTradesThisTurn?: number;
   botTradeSignatures?: string[];
   board: Hex[];

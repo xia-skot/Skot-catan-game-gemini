@@ -8,7 +8,7 @@ test('data center periods, guest search, navigation and database capacity', asyn
   const panel = page.locator('[data-admin-section="analytics"]');
   await expect(panel.locator('[data-metric="games"]')).toHaveText('3');
   await expect(panel.locator('[data-metric="guests"]')).toHaveText('1');
-  await expect(panel.locator('tbody tr')).toHaveCount(14);
+  await expect(panel.locator('tbody tr')).toHaveCount(7);
   await panel.getByLabel('统计周期').selectOption('week');
   await expect(panel.locator('tbody tr')).toHaveCount(12);
   await panel.getByLabel('统计周期').selectOption('month');
@@ -26,8 +26,7 @@ test('data center periods, guest search, navigation and database capacity', asyn
   await page.screenshot({ path: info.outputPath('guest-list.png'), fullPage: true });
   await guests.getByTitle('返回二级菜单', { exact: true }).click();
   await expect(panel).toBeVisible();
-  await panel.getByTitle('返回二级菜单', { exact: true }).click();
-  await page.getByRole('heading', { name: '系统设置', exact: true }).click();
+  await panel.getByRole('button', { name: '数据库空间', exact: true }).click();
   const storage = page.locator('[data-database-storage]');
   await expect(storage.getByText('12 MiB', { exact: true })).toBeVisible();
   await storage.getByLabel('集群容量上限（MiB）').fill('512');
@@ -35,6 +34,12 @@ test('data center periods, guest search, navigation and database capacity', asyn
   await expect(storage.getByText('500 MiB', { exact: true })).toBeVisible();
   await storage.scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath('database-storage.png'), fullPage: true });
+  await page.locator('[data-admin-section="storage"]').getByTitle('返回二级菜单', { exact: true }).click();
+  await expect(panel).toBeVisible();
+  await panel.getByTitle('返回二级菜单', { exact: true }).click();
+  await page.getByRole('heading', { name: '系统设置', exact: true }).click();
+  await expect(page.locator('[data-database-storage]')).toHaveCount(0);
+  await expect(page.getByRole('form', { name: '入口跳转设置' })).toHaveCount(0);
 });
 
 test('failed analytics request can retry without displaying zero totals', async ({ page }) => {
