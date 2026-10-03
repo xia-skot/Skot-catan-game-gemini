@@ -1,6 +1,6 @@
-# v16 带宽查询与切换
+# v31 带宽查询与切换
 
-这是 v15 后的更新包。旧包不要重复上传，使用 catan-complete-v16.zip。本文是当前部署步骤，优先于旧版说明。
+使用 catan-complete-v31.zip。已有 v30 只需更新 gateway/worker.js；v31 会在月初成功补采后恢复旧的不完整标记。保留 v30 自动模式保存前校验。具体步骤见 DEPLOYMENT.md 的 v31 章节，账单填写和数据库查询位置见 v30 章节。
 
 ## 只需做这些
 
@@ -10,7 +10,7 @@
 4. Cloudflare 的 skot Worker 编辑器内，用完整包 gateway/worker.js 全文替换并部署；不是 worker.ts。不必重建 Worker、KV 或密钥。
 5. 保留 ROUTING KV 绑定、GATEWAY_ADMIN_TOKEN Secret、KEEP_ALIVE=true、ENTRY_ORIGIN=https://skot-game.onrender.com 和每五分钟的 Cron。三个 API Key 必须是 Secret，名称与下面表格一致。
 6. 每个游戏服务设置 GATEWAY_URL=https://skot.catan-game.workers.dev，GATEWAY_ADMIN_TOKEN 与 Worker 一致；游戏站的 MONGODB_URI 和强随机 JWT_SECRET 三站一致。不要把这些密钥上传 GitHub。
-7. 先保持固定默认网址或按旬模式。等下次 Cron 后，在管理员的系统设置里点击刷新带宽状态。采集每十五分钟最多一次，首次预计等五至十五分钟，KV 同步还可能延迟。
+7. 先保持固定默认网址或按旬模式。等下次 Cron 后，在管理中心 → 数据中心 → 网址与流量里点击刷新带宽状态。采集每十五分钟最多一次，首次预计等五至十五分钟，KV 同步还可能延迟。
 8. 查询成功后，若提示缺少月初记录，从对应 Render 工作区 Billing 核对本月累计 GB，在相应游戏站的“账单本月总用量”中补录。缺少完整记录不会参与自动分配。新月份自动新建账本。
 9. 三站状态正常后，选择“按剩余带宽”，核对实际月额度，保留适当预留量，再保存入口设置。默认估算额度 5 GB、预留 0.7 GB，可按实际情况调整。默认网址必须为游戏站01，不能填 skot-game 入口自身。
 10. 关闭 VPN，用手机从 https://skot-game.onrender.com 进入，检查登录、资源加载、游戏交互和桌面入口。不要把 workers.dev 发给普通玩家。

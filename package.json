@@ -7,7 +7,7 @@
     "dev": "tsx server.ts",
     "demo": "tsx server.ts --demo",
     "test:mobile": "playwright test",
-    "test:unit": "node --import tsx --test tests/analytics.test.ts tests/leaderboard.test.ts tests/announcement-editing.test.ts tests/gateway.test.ts tests/bandwidth.test.ts tests/bot-strategy.test.ts src/localMessageDisplay.test.ts",
+    "test:unit": "node --import tsx --test tests/social.test.ts tests/analytics.test.ts tests/leaderboard.test.ts tests/announcement-editing.test.ts tests/gateway.test.ts tests/bandwidth.test.ts tests/bot-strategy.test.ts src/localMessageDisplay.test.ts",
     "build:gateway": "esbuild gateway/worker.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=gateway/worker.js",
     "build": "vite build",
     "preview": "vite preview",
