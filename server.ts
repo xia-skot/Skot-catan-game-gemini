@@ -29,6 +29,7 @@ import { registerAnalyticsRoutes } from './server/analyticsRoutes';
 import { buildAnalytics, completedGames } from './server/analytics';
 import { createSocialService } from './server/social';
 import { SocialStore } from './server/socialStore';
+import { conflictingRoom } from './server/roomOccupancy';
 import { freeSeats } from './shared/social';
 import { queryDatabaseStorage } from './server/databaseStorage';
 import { loginDeviceGuest, renameGuest } from './server/guestIdentity';
@@ -263,7 +264,7 @@ async function startServer() {
   if (demoLeaderboard) app.get('/api/admin/stats', authMiddleware, adminMiddleware, (_req, res) => res.json(demoLeaderboard.stats()));
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ status: 'ok', version: 'v32', scoringVersion: LEADERBOARD_SCORING_VERSION, historyVersion: 'account-history-v20' });
+    res.json({ status: 'ok', version: 'v38', scoringVersion: LEADERBOARD_SCORING_VERSION, historyVersion: 'account-history-v20' });
   });
 
   app.get('/api/db-status', (req, res) => {
@@ -512,7 +513,11 @@ async function startServer() {
         } catch (e) {}
       }
 
-      const messages = await messagesCollection.find().sort({ createdAt: -1 }).toArray();
+      const summary = req.query.summary === '1';
+      const cursor = messagesCollection.find().sort({ createdAt: -1 });
+      const messages = await (summary && !DEMO_MODE
+        ? cursor.project({ _id: 1, revision: 1, type: 1, targetUserId: 1, targetUserName: 1, senderId: 1, senderName: 1 })
+        : cursor).toArray();
 
       const filtered = messages.filter((m: any) => canReadMessage(m, {
         id: currentUserId, name: currentUsername, admin: isAdmin, guest: isGuest,
@@ -536,9 +541,9 @@ async function startServer() {
 
       let allPlayerNames: string[] = [];
       let recipients: { id: string; username: string; isGuest: boolean }[] = [];
-      if (isAdmin && demoLeaderboard) recipients = [...demoLeaderboard.users, ...demoLeaderboard.stats().allGuests]
+      if (isAdmin && req.query.recipients !== '0' && demoLeaderboard) recipients = [...demoLeaderboard.users, ...demoLeaderboard.stats().allGuests]
         .filter(u => u.role !== 'admin').map(u => ({ id: String(u._id), username: u.username, isGuest: u.isGuest }));
-      if (isAdmin && usersCollection) {
+      if (isAdmin && req.query.recipients !== '0' && usersCollection) {
         try {
           const players = await usersCollection.find({}).project({ username: 1, role: 1, isGuest: 1 }).toArray();
           recipients = players.filter((p: any) => p.username && p.role !== 'admin' && String(p._id) !== currentUserId)
@@ -1390,6 +1395,12 @@ async function startServer() {
       touchRoom(roomId);
       if (!playerId) playerId = socket.id;
       if (!playerName) playerName = '玩家';
+      // A disconnected participant still owns their seat in an unfinished game.
+      const occupied = conflictingRoom(rooms.values(), verifiedUserId || playerId, roomId);
+      if (occupied) {
+        socket.emit('join_error', `你仍在房间 ${occupied.roomId} 中（包括托管中的对局），请返回原房间；对局结束后才能进入其他房间。`);
+        return;
+      }
       console.log('User joining room:', roomId, playerId, 'asSpectator:', asSpectator);
       socket.join(roomId);
       
@@ -1464,6 +1475,9 @@ async function startServer() {
     });
 
     socket.on('leave_room', (roomId: string, playerId: string) => {
+      const membership = rooms.get(roomId);
+      if (!membership || ![...membership.players, ...(membership.spectators || [])]
+        .some((p: any) => p.id === playerId && p.socketId === socket.id)) return;
       console.log('User leaving room:', roomId, playerId);
       socket.leave(roomId);
       touchRoom(roomId);
@@ -1728,6 +1742,7 @@ async function startServer() {
 
     socket.on('reclaim_slot', (roomId: string, newPlayerId: string, oldPlayerId: string) => {
       if (socket.data.socialAccount?.userId !== newPlayerId || newPlayerId !== oldPlayerId || !socket.rooms.has(roomId)) return;
+      if (conflictingRoom(rooms.values(), newPlayerId, roomId)) return;
       const room = rooms.get(roomId);
       if (room && room.gameState) {
         // Find the old player in the room list
@@ -1815,8 +1830,8 @@ async function startServer() {
     socket.on('get_active_rooms', (isAdmin?: boolean, callback?: (rooms: any[]) => void) => {
       let activeRooms = Array.from(rooms.values())
         .map(r => ({
-          ...r,
-          gameState: undefined,
+          roomId: r.roomId, hostId: r.hostId, players: r.players, spectators: r.spectators,
+          settings: r.settings, reservedUntil: r.reservedUntil,
           status: r.gameState ? 'playing' : 'waiting'
         }))
         .filter(r => {

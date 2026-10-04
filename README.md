@@ -13,3 +13,30 @@
 线上数据库和邮件配置继续使用 Render 中已有的值；`.env.example` 仅提供示例。
 
 外部保活请查看 [保活说明](EXTERNAL-KEEP-ALIVE.md)。
+# v38 private recipient selection
+
+- Admin private messages use a searchable recipient dialog with player/guest filtering and the existing four player sort fields.
+- Single selection opens a conversation only after confirmation. Multiple recipients open a broadcast draft; sending writes separate private messages by stable account ID.
+- Successful recipients are removed from a partially failed batch. Unconfirmed network failures require checking the conversation before retrying; broadcasts are not atomic or exactly-once delivery.
+- Includes v37 performance and entry icon changes below.
+
+# v37 loading and home icon
+
+- History loads when opened, rather than for every hidden profile. Guest history remains unavailable.
+- Mongo leaderboard/history reads share a five-second cache and in-flight read; explicit leaderboard refresh bypasses the cache. Scoring and identity rules are unchanged.
+- Message summaries omit body fields in Mongo reads. System messages skip the admin recipient directory and retain unchanged, previously loaded bodies across summary polls.
+- Room list responses omit internal game bookkeeping. First loads and platform cold starts can still take time; no live latency reduction is claimed.
+- Fixed-entry desktop icons use the existing light-background v18 artwork. Game artwork stays unchanged. Browser-generated splash screens may reuse the desktop icon; see render-entry/README.md.
+
+# v34 invitation fixes
+
+- Unfinished disconnected/autoplay participants remain busy for invitations. Local stale idle presence cannot bypass candidate filtering, acceptance, or invitation validation.
+- The invitation banner honors the existing room lock, including invitations linking to another game origin.
+- Includes v33 fixes below. This is not a distributed room occupancy lock across services.
+
+# v33 fixes
+
+- Explicit map double-click/double-tap resets the camera; remote state and viewport changes preserve it.
+- Server room admission rejects accounts occupying another unfinished room, including disconnected/autoplay seats. Returning to the original room is allowed.
+- Occupancy checks currently cover rooms in one server process, not separate Render services. Cross-service exclusion is not implemented in this release.
+- Verified with TypeScript, camera desktop/Android tests, room occupancy unit tests and a real Socket.IO admission test.
