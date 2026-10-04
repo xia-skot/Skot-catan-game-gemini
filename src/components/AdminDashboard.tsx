@@ -264,11 +264,13 @@ export function AdminDashboard({ onLogout, onClose, onPrivateMessage, inline = f
   };
 
   useEffect(() => {
-    fetchStats();
-    fetchFeedbacks();
-    fetchAbout();
-    fetchFeedbackPrompt();
-  }, []);
+    if (['users', 'guests', 'system'].includes(activeSection) && !data) fetchStats();
+    if (activeSection === 'feedbacks') fetchFeedbacks();
+    if (activeSection === 'system') {
+      fetchAbout();
+      fetchFeedbackPrompt();
+    }
+  }, [activeSection]);
 
   const handleDeleteUser = async (userId: string) => {
     setConfirmDeleteId(null);
@@ -732,7 +734,7 @@ export function AdminDashboard({ onLogout, onClose, onPrivateMessage, inline = f
   const dashboard = (
     <div className={inline ? "space-y-4" : "absolute inset-0 bg-slate-50 z-50 overflow-y-auto"}>
       <div className={inline ? "" : "min-h-full max-w-4xl mx-auto flex flex-col font-sans relative pb-12"}>
-        {loading && !data ? (
+        {['users', 'guests', 'system'].includes(activeSection) && loading && !data ? (
           <div className="flex items-center justify-center py-20 text-indigo-500">
             <Loader2 size={24} className="animate-spin" />
           </div>

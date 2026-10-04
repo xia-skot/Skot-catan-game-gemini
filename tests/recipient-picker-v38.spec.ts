@@ -1,0 +1,38 @@
+import { test, expect } from '@playwright/test';
+
+test('recipient picker sorts, searches, confirms single chat and broadcasts only checked accounts', async ({ page, request }, info) => {
+  await request.post('/api/demo/reset');
+  await page.goto('/?demoRole=admin');
+  await expect(page.locator('[data-lobby-tabs]')).toBeVisible({ timeout: 30000 });
+  await page.locator('.lobby-tab-bar').getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByText('私信', { exact: true }).click();
+  await page.getByRole('button', { name: '选择私信对象', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: '选择私信对象', exact: true });
+  await expect(dialog.getByLabel('收件人排序属性')).toBeEnabled();
+  await dialog.getByLabel('收件人排序属性').selectOption('totalGames');
+  await dialog.getByLabel('降序，切换为升序').click();
+  await dialog.getByLabel('搜索私信对象').fill('666666666666666666666666');
+  await expect(dialog.locator('[data-recipient-id]')).toHaveCount(1);
+  await expect(dialog.getByText('游客 · 666666666666666666666666', { exact: true })).toBeVisible();
+  await dialog.getByRole('radio').check();
+  await dialog.getByRole('button', { name: '确认', exact: true }).click();
+  await expect(page.locator('.chat-screen')).toBeVisible();
+  await page.evaluate(async () => { (await import('/src/' + 'navigation.ts')).requestAppBack(); });
+  await page.getByRole('button', { name: '选择私信对象', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: '选择私信对象', exact: true });
+  await expect(dialog.getByLabel('收件人排序属性')).toBeEnabled();
+  await dialog.getByRole('button', { name: '多选', exact: true }).click();
+  const ids = await dialog.locator('[data-recipient-id]').evaluateAll(rows => rows.slice(0, 2).map(row => row.getAttribute('data-recipient-id')));
+  expect(ids.length).toBe(2);
+  await dialog.getByRole('checkbox').nth(0).check();
+  await dialog.getByRole('checkbox').nth(1).check();
+  await page.screenshot({ path: info.outputPath('recipient-picker.png') });
+  await dialog.getByRole('button', { name: '确认', exact: true }).click();
+  const compose = page.getByRole('dialog', { name: '群发私信', exact: true });
+  await compose.getByLabel('群发内容').fill('多人私信测试');
+  const sent: string[] = [];
+  page.on('request', req => { if (req.url().endsWith('/api/admin/messages') && req.method() === 'POST') sent.push(req.postDataJSON().targetUserId); });
+  await compose.getByRole('button', { name: '发送群发私信', exact: true }).click();
+  await expect(page.getByText('已发送 2 人', { exact: true })).toBeVisible();
+  expect(sent.sort()).toEqual(ids.sort());
+});

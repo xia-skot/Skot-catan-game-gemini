@@ -41,10 +41,12 @@ test('unified directories, seven days, guest messaging and recipient ID search',
   await expect(page.getByText('体验游客', { exact: true }).first()).toBeVisible();
   // Return to the private-message list through the application's existing back handler.
   await page.evaluate(async () => { (await import('/src/' + 'navigation.ts')).requestAppBack(); });
-  await page.getByLabel('搜索私信对象').fill('666666666666666666666666');
-  const select = page.getByLabel('选择玩家发起私信');
-  await expect(select.locator('option')).toHaveCount(2);
-  await select.selectOption('666666666666666666666666');
+  await page.getByRole('button', { name: '选择私信对象', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: '选择私信对象', exact: true });
+  await picker.getByLabel('搜索私信对象').fill('666666666666666666666666');
+  await expect(picker.locator('[data-recipient-id]')).toHaveCount(1);
+  await picker.getByRole('radio').check();
+  await picker.getByRole('button', { name: '确认', exact: true }).click();
   await page.getByLabel('私信内容').fill('游客私信验证');
   const sent = page.waitForRequest(req => req.url().endsWith('/api/admin/messages') && req.method() === 'POST');
   await page.locator('.chat-screen').getByRole('button', { name: '发送', exact: true }).click();
@@ -53,7 +55,7 @@ test('unified directories, seven days, guest messaging and recipient ID search',
   await page.screenshot({ path: info.outputPath('guest-chat.png') });
 });
 
-test('manual map view survives remote state, double tap and viewport changes', async ({ page }) => {
+test('manual map view survives remote state and resize but explicit double tap resets it', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '进入海域', exact: true }).click();
   await page.getByRole('button', { name: '就绪', exact: true }).click();
@@ -76,7 +78,6 @@ test('manual map view survives remote state, double tap and viewport changes', a
       service.requestSync(service.authoritativeRoom.roomId);
     });
     service.socket.onevent({ data: ['game_state_updated', state, { roomId: service.authoritativeRoom.roomId }] });
-    stage.fire('dblclick'); stage.fire('dbltap');
   });
   await page.waitForTimeout(400);
   expect(await read()).toEqual({ scale: 1.7, x: 123, y: 86 });
@@ -91,6 +92,15 @@ test('manual map view survives remote state, double tap and viewport changes', a
   await page.setViewportSize({ width: 900, height: 420 });
   await page.waitForTimeout(250);
   expect(await read()).toEqual({ scale: 1.7, x: 123, y: 86 });
+  for (const event of ['dblclick', 'dbltap']) {
+    await page.evaluate(async event => {
+      const Konva = (await import('/node_modules/.vite/deps/' + 'konva.js')).default;
+      const stage = Konva.stages.find((s: any) => s.findOne('.board-terrain'));
+      stage.scale({ x: 1.7, y: 1.7 }); stage.position({ x: 123, y: 86 });
+      stage.fire(event);
+    }, event);
+    await expect.poll(read).not.toEqual({ scale: 1.7, x: 123, y: 86 });
+  }
   await page.reload();
   await expect(page.locator('[data-game-sailing]')).toHaveCount(0, { timeout: 20000 });
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });

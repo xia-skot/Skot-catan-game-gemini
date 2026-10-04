@@ -39,8 +39,9 @@ test('weeks start Monday and months cross year/leap boundaries without timezone 
 test('admin-only endpoints, guest allowlist, quota validation, unknown quota and partial storage', async () => {
   const app = express(); app.use(express.json());
   let capacity: number | null = null, scope: 'cluster' | 'database' = 'cluster', fail = false;
+  let reads = 0;
   const gate: any = (req: any, res: any, next: any) => req.headers.authorization === 'admin' ? next() : res.sendStatus(403);
-  registerAnalyticsRoutes(app, gate, gate, { readRecords: async () => ({ users, games }), readCapacity: async () => capacity,
+  registerAnalyticsRoutes(app, gate, gate, { readRecords: async () => { reads++; return { users, games }; }, readCapacity: async () => capacity,
     writeCapacity: async bytes => { capacity = bytes; }, readStorage: async () => {
       if (fail) throw new Error('secret-uri');
       return { usedBytes: 128, scope, dataBytes: 100, indexBytes: 28 };
@@ -53,6 +54,11 @@ test('admin-only endpoints, guest allowlist, quota validation, unknown quota and
     for (const path of ['analytics', 'guests', 'database-storage']) assert.equal((await request(path, { headers: {} })).status, 403);
     assert.equal((await request('database-storage', { method: 'PUT', headers: {}, body: '{}' })).status, 403);
     assert.equal((await request('analytics?date=2026-02-30')).status, 400);
+    assert.equal((await request('analytics')).status, 200);
+    assert.equal((await request('analytics?period=week')).status, 200);
+    assert.equal(reads, 1);
+    assert.equal((await request('analytics?refresh=1')).status, 200);
+    assert.equal(reads, 2);
     const guests = await (await request('guests')).json();
     assert.equal(guests.guests.length, 1); assert.equal(guests.guests[0].password, undefined);
     assert.equal((await (await request('database-storage')).json()).remainingBytes, null);

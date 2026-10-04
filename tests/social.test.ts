@@ -104,6 +104,9 @@ test('different game nodes deliver invitations through the shared store and vali
     assert.equal(await services[0].validateInvitation('guest', invitation.id, 'travel'), true);
     assert.equal(await services[1].validateInvitation('guest', invitation.id, 'travel'), false);
     assert.equal(await services[0].validateInvitation('other', invitation.id, 'travel'), false);
+    // Leaving an unfinished game does not make a participant eligible for invitations.
+    hostRooms.set('unfinished', { roomId: 'unfinished', players: [{ id: 'guest', disconnected: true }], gameState: { winnerId: null } });
+    assert.equal(await services[0].validateInvitation('guest', invitation.id, 'travel'), false);
   } finally {
     services.forEach(service => service.close()); sockets.forEach(socket => socket.disconnect());
     for (const io of ios) await new Promise<void>(resolve => io.close(() => resolve()));
@@ -132,12 +135,21 @@ test('real sockets authenticate online presence, stage at most ten invites and e
     io.sockets.sockets.get(host.id!)!.join('r');
     for (let i = 0; i < 12; i++) await store.putSession({ _id: `candidate${i}`, accountId: `candidate${i}`, username: `玩家${i}`, status: 'idle', expiresAt: new Date(Date.now() + 45000) });
     await store.putSession({ _id: 'busy', accountId: 'busy', status: 'playing', expiresAt: new Date(Date.now() + 45000) });
+    rooms.set('autoplay', { roomId: 'autoplay', players: [{ id: 'autoplay-user', disconnected: true }], gameState: { winnerId: null } });
+    const autoplay = await client('autoplay-user');
+    assert.equal((await social.online()).find(user => user.accountId === 'autoplay-user')?.status, 'playing');
+    // Even a stale idle presence record must be filtered before sending.
+    await store.putSession({ _id: 'stale', accountId: 'stale-user', status: 'idle', expiresAt: new Date(Date.now() + 45000) });
+    rooms.set('stale-room', { roomId: 'stale-room', players: [{ id: 'stale-user', disconnected: true }], gameState: { winnerId: null } });
+    await SocialStore.prototype.claim.call(store, { id: 'late-invite', roomId: 'r', origin: 'http://localhost', hostName: 'host', recipientId: 'autoplay-user', expiresAt: Date.now() + 10000 });
+    assert.ok((await autoplay.timeout(2000).emitWithAck('invitation_reply', 'late-invite', true)).error);
+    store.claimed.length = 0;
     assert.ok((await outsider.timeout(2000).emitWithAck('invite_online', 'r')).error);
     const sent = await host.timeout(2000).emitWithAck('invite_online', 'r');
     assert.equal(sent.sent, 3);
     await new Promise(resolve => setTimeout(resolve, 8000));
     assert.equal(store.claimed.length, 10); assert.equal(new Set(store.claimed.map(item => item.recipientId)).size, 10);
-    assert.ok(store.claimed.every(item => !['host', 'busy'].includes(item.recipientId)));
+    assert.ok(store.claimed.every(item => !['host', 'busy', 'autoplay-user', 'stale-user'].includes(item.recipientId)));
     assert.ok((await host.timeout(2000).emitWithAck('invite_online', 'r')).error);
     assert.ok((await social.online()).some(user => user.accountId === 'host'));
     (room as any).gameState = { players: [{ id: 0, sessionId: 'host' }, { id: 1, isBot: true }] };

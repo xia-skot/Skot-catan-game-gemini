@@ -8,7 +8,10 @@ async function openProfile(page: Page, admin = false) {
 
 async function openAdminSection(page: Page, section: '玩家名单' | '系统设置') {
   await page.getByRole('heading', { name: '管理中心', exact: true }).click();
-  await page.getByRole('heading', { name: section, exact: true }).click();
+  if (section === '玩家名单') {
+    await page.getByRole('heading', { name: '数据中心', exact: true }).click();
+    await page.getByRole('button', { name: section, exact: true }).click();
+  } else await page.getByRole('heading', { name: section, exact: true }).click();
   return page.locator(`[data-admin-section="${section === '玩家名单' ? 'users' : 'system'}"]`);
 }
 
@@ -19,7 +22,7 @@ test('profile monthly board shows real demo results, calendar selection, empty s
   await page.getByRole('heading', { name: '排行榜', exact: true }).click();
   const board = page.locator('[data-leaderboard]');
   await expect(board.locator('tbody tr').first()).toBeVisible();
-  await expect(board.getByText('北京时间 · 前 20 名')).toBeVisible();
+  await expect(board.getByText('前 20 名', { exact: true })).toBeVisible();
   await expect(board.getByRole('button', { name: '下个月', exact: true })).toBeDisabled();
   const currentMonth = await board.getByLabel('排行榜月份').inputValue();
   const bounds = await board.boundingBox();
@@ -90,5 +93,5 @@ test('admin display count saves, survives reload and limits the profile board', 
   await page.getByRole('heading', { name: '排行榜', exact: true }).click();
   const board = page.locator('[data-leaderboard]');
   await expect(board.locator('tbody tr')).toHaveCount(1);
-  await expect(board.getByText('北京时间 · 前 1 名')).toBeVisible();
+  await expect(board.getByText('前 1 名', { exact: true })).toBeVisible();
 });

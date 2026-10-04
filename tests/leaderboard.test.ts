@@ -420,7 +420,14 @@ test('Mongo setting persists in its isolated document across store instances; se
   } };
   await mongoLeaderboardStore(() => collections).writeTopCount(37);
   assert.equal(await mongoLeaderboardStore(() => collections).readTopCount(), 37);
-  await mongoLeaderboardStore(() => collections).readRecords();
+  const store = mongoLeaderboardStore(() => collections);
+  const first = await store.readRecords();
+  const again = await store.readRecords();
+  assert.equal(projections.length, 2);
+  assert.deepEqual(again, first);
+  assert.notEqual(again.games, first.games);
+  await store.readRecords(true);
+  assert.equal(projections.length, 4);
   assert.equal(projections[1].email, undefined);
   assert.equal(projections[1].password, undefined);
   assert.equal(projections[0].durationMs, 1);

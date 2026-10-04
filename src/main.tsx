@@ -12,7 +12,7 @@ function ApplicationRoot() {
   const handleAccountReady = useCallback(() => setAccountReady(true), []);
   return <>
     <div inert={!startupFinished} style={{ visibility: startupFinished ? 'visible' : 'hidden' }}>
-      <Suspense fallback={null}><App onAccountReady={handleAccountReady} /></Suspense>
+      <Suspense fallback={null}><App onAccountReady={handleAccountReady} startupFinished={startupFinished} /></Suspense>
     </div>
     {!startupFinished && <StartupScreen waitingForAccount={!accountReady} onComplete={() => setStartupFinished(true)} />}
   </>;

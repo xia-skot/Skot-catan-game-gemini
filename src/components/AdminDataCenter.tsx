@@ -8,18 +8,27 @@ const inputClass = 'min-w-0 h-10 rounded-lg border border-slate-200 bg-white px-
 const displayDate = (date: string) => date && Number.isFinite(new Date(date).getTime())
   ? new Date(date).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未知';
 
+let analyticsPreview: { token: string; url: string; data: any; time: number } | null = null;
+
 function useAdminQuery(url: string) {
   const [data, setData] = useState<any>(null), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setError(''); setData(null);
+    const token = localStorage.getItem('catan_auth_token') || '';
+    const analytics = url.startsWith('/api/admin/analytics?');
+    if (analyticsPreview?.token !== token) analyticsPreview = null;
+    const preview = analytics && analyticsPreview?.url === url && Date.now() - analyticsPreview.time < 60000 ? analyticsPreview.data : null;
+    setLoading(true); setError(''); setData(preview);
     (async () => {
       try {
-        const response = await fetch(url, { headers: headers(), signal: controller.signal });
+        const response = await fetch(analytics && revision > 0 ? `${url}&refresh=1` : url, { headers: headers(), signal: controller.signal });
         const result = await safeFetchJson(response);
         if (!response.ok || !result) throw new Error(result?.error || '数据读取失败');
-        if (!controller.signal.aborted) setData(result);
+        if (!controller.signal.aborted) {
+          setData(result);
+          if (analytics) analyticsPreview = { token, url, data: result, time: Date.now() };
+        }
       } catch (error) { if (!controller.signal.aborted) setError((error as Error).message); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     })();
@@ -56,7 +65,7 @@ export function AdminDataCenter({ onUsers, onGuests, onGateway, onStorage }: { o
     </tr></thead><tbody>{data?.rows.map((row: any) => <tr key={row.start} className="border-b border-slate-100 tabular-nums">
       <td className="py-3 text-slate-600">{row.start}{period !== 'day' && <><br /><span className="text-slate-400">至 {row.end}</span></>}</td><td className="text-center font-semibold text-emerald-700">{row.games}</td><td className="text-center">{row.registered}</td><td className="text-center">{row.guests}</td>
     </tr>)}</tbody></table>
-    {loading && <p role="status" className="text-center text-sm text-slate-500">正在读取统计数据…</p>}
+    {loading && <p role="status" className="text-center text-sm text-slate-500">{data ? '正在更新统计数据…' : '正在读取统计数据…'}</p>}
     <div className="divide-y divide-slate-200 border-y border-slate-200">
       {[[Users, '玩家名单', onUsers], [User, '游客名单', onGuests], [ExternalLink, '网址与流量', onGateway], [Database, '数据库空间', onStorage]].map(([Icon, label, action]: any) => <button key={label} type="button" onClick={action} className="flex w-full items-center gap-3 py-4 text-sm text-slate-700"><Icon size={18} /><span>{label}</span><ChevronRight size={18} className="ml-auto" /></button>)}
     </div>

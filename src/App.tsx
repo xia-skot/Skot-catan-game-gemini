@@ -540,7 +540,7 @@ function SailingLoadingScreen({ onComplete, text = '正在驶入海域', loop = 
   return loadAssets ? <AssetGate onCancel={onCancel || onComplete}>{screen}</AssetGate> : screen;
 }
 
-export default function App({ onAccountReady }: { onAccountReady?: () => void }) {
+export default function App({ onAccountReady, startupFinished = true }: { onAccountReady?: () => void; startupFinished?: boolean }) {
   const [showSoundModal, setShowSoundModal] = useState(false);
   const robberDragControls = useDragControls();
   const playerTradeDragControls = useDragControls();
@@ -4742,6 +4742,8 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
               boardLayerRef.current?.clearCache();
             }}
             onWheel={handleWheel}
+            onDblClick={() => centerMap(true)}
+            onDblTap={() => centerMap(true)}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={(e) => {
@@ -6772,12 +6774,13 @@ export default function App({ onAccountReady }: { onAccountReady?: () => void })
       return point;
     }}>
       <>
-        <InvitationBanner enabled={!!currentUser} inRoom={!!roomState || isJoinedLobby} onJoin={invitation => {
+        <InvitationBanner enabled={!!currentUser} inRoom={!!roomState || isJoinedLobby || isRoomLocked} onJoin={invitation => {
+          if (isRoomLocked) return;
           localStorage.removeItem('catan_is_spectator'); setIsJoinSpectator(false);
           setInputRoomId(invitation.roomId); setIsJoinedLobby(true);
           socketService.joinRoom(invitation.roomId, playerName, false, invitation.id);
         }} />
-        {isSpectator && roomState && <SpectatorExit anchor={spectatorExitAnchor} rotated={shouldApplyPortraitRotation} onExit={() => {
+        {isSpectator && roomState && startupFinished && !showSailingScreen && <SpectatorExit anchor={spectatorExitAnchor} rotated={shouldApplyPortraitRotation} onExit={() => {
           setShowRulesModal(false); setShowSoundModal(false); setConfirmAction(null); setShowPwaGuide(false);
           handleReturnToLobby();
         }} />}

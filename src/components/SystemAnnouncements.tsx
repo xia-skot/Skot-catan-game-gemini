@@ -65,7 +65,7 @@ export function SystemAnnouncements({ messages, loading, isAdmin, isActive, onRe
             <Plus size={16} />发布系统公告</button>}
         </div>
       </div>
-      {loading ? <div className="py-12 flex justify-center"><Loader2 size={22} className="animate-spin text-slate-400" /></div>
+      {loading && (!messages.length || !messages.every(message => typeof message.content === 'string')) ? <div className="py-12 flex justify-center"><Loader2 size={22} className="animate-spin text-slate-400" /></div>
         : messages.length === 0 ? <p className="py-12 text-center text-sm text-slate-400">暂无系统公告或系统通知</p>
         : messages.map(message => <div key={message.id} className="flex items-center gap-2 border-b border-slate-200/70 py-3">
           <button type="button" onClick={() => { setSelectedId(message.id); if (!message.read) onRead(message.id); }}

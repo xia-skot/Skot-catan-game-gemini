@@ -21,7 +21,7 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
     const token = localStorage.getItem('catan_auth_token');
     (async () => {
       try {
-        const response = await fetch(`/api/leaderboard?month=${encodeURIComponent(month)}`, {
+        const response = await fetch(`/api/leaderboard?month=${encodeURIComponent(month)}${revision ? '&refresh=1' : ''}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal, cache: 'no-store',
         });
         const result = await safeFetchJson<MonthlyLeaderboard & { error?: string }>(response);

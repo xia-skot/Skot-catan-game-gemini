@@ -6,6 +6,7 @@ import { SoundSettingsModal } from './SoundSettingsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { Leaderboard } from './Leaderboard';
 import { SystemAnnouncements } from './SystemAnnouncements';
+import { PrivateRecipientPicker } from './PrivateRecipientPicker';
 import { recordedPlayerScore, storedResultRankPoints } from '../../shared/gameResult';
 import { safeFetchJson } from '../fetchUtils';
 import { requestAppBack, useBackHandler } from '../navigation';
@@ -538,7 +539,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     try {
       const token = localStorage.getItem('catan_auth_token');
       const full = activeView === 'messages' || activeView === 'private_chat';
-      const res = await fetch(full ? '/api/messages' : '/api/messages?summary=1', {
+      const res = await fetch(full ? (activeView === 'messages' ? '/api/messages?recipients=0' : '/api/messages') : '/api/messages?summary=1', {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!res.ok) return;
@@ -546,7 +547,14 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
       if (currentAccountRef.current !== account || requestId !== messageRequestRef.current) return;
       if (data?.messages) {
         const readMsgs = readMessageIds(currentUser?.username || 'user');
-        setMessages(data.messages.map((m: any) => ({ ...m, read: readMsgs.has(messageReadKey(m)) })));
+        setMessages(previous => {
+          const existing = new Map(previous.map(message => [message.id, message]));
+          return data.messages.map((m: any) => {
+            const old = existing.get(m.id);
+            const body = !full && old && (old.revision || 1) === (m.revision || 1) ? old : {};
+            return { ...body, ...m, read: readMsgs.has(messageReadKey(m)) };
+          });
+        });
       }
       if (data?.adminUsername) {
         setAdminUsername(data.adminUsername);
@@ -695,7 +703,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     setGames([]);
     setServerStats(null);
     setGamesError('');
-    if (!currentUser?.username) return;
+    if (!currentUser?.username || currentUser.isGuest || !isActive || (activeView !== 'history' && !currentUser.isViewingAsAdmin)) return;
     
     setGamesLoading(true);
     const token = localStorage.getItem('catan_auth_token');
@@ -719,7 +727,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
     .catch(error => { if (!controller.signal.aborted) setGamesError(error.message || '历史战绩读取失败'); })
     .finally(() => { if (!controller.signal.aborted) setGamesLoading(false); });
     return () => controller.abort();
-  }, [currentUser?.id, currentUser?.username, currentUser?.isViewingAsAdmin, activeView === 'history']);
+  }, [currentUser?.id, currentUser?.username, currentUser?.isViewingAsAdmin, currentUser?.isGuest, isActive, activeView === 'history']);
 
   const fetchSaves = async () => {
     if (currentUser?.role !== 'admin') return;
@@ -1430,8 +1438,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                 className="space-y-3 font-sans py-2"
               >
                 {displayNotice && <p role="status" className="text-xs text-amber-700">{displayNotice}</p>}
-                {isAdmin && <input aria-label="搜索私信对象" placeholder="搜索玩家、游客名称或 ID" value={recipientSearch} onChange={event => setRecipientSearch(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" />}
-                <select aria-label="选择玩家发起私信" value="" onChange={event => {
+                {isAdmin ? <PrivateRecipientPicker key={account} recipients={recipients} onSingle={recipient => openConversation(recipient.username, recipient.id)} onSent={() => void fetchMessagesData(true)} /> : <select aria-label="选择玩家发起私信" value="" onChange={event => {
                   const recipient = recipients.find(item => item.id === event.target.value);
                   if (event.target.value) openConversation(isAdmin ? recipient?.username || event.target.value : undefined, recipient?.id);
                 }} className="w-full bg-white border border-slate-200 text-indigo-700 text-sm font-bold rounded-lg px-3 py-3 outline-none focus:border-indigo-500">
@@ -1439,7 +1446,7 @@ export function UserProfileModal({ currentUser, onClose, onUpdateSuccess, onLogo
                   {isAdmin && recipients.length > 0 ? recipients.filter(item => `${item.username} ${item.id}`.toLowerCase().includes(recipientSearch.trim().toLowerCase())).map(item => <option key={item.id} value={item.id}>{item.username}（{item.isGuest ? '游客' : '玩家'} · {item.id}）</option>) : (isAdmin ? [...new Set(allPlayerNames)].filter(name => name && name !== currentUser?.username && name.toLowerCase().includes(recipientSearch.toLowerCase())) : [adminDisplayName]).map(name => (
                     <option key={name} value={name}>{name}{!isAdmin ? '（管理员）' : ''}</option>
                   ))}
-                </select>
+                </select>}
                 {!isAdmin ? playerConversationHidden ? (
                   <p className="py-12 text-center text-xs text-slate-500">暂无会话</p>
                 ) : (

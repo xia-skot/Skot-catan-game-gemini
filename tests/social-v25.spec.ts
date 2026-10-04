@@ -70,10 +70,31 @@ test('spectator privacy, illustrated gifts/emotes and exit above a rules modal',
     await expect(host.locator('[data-game-sailing]')).toHaveCount(0, { timeout: 20000 });
     await open(page); await page.locator('.lobby-tab-bar').getByRole('button', { name: '大厅', exact: true }).click();
     await page.getByRole('button', { name: '观战', exact: true }).click();
+    await expect(page.locator('[data-game-sailing]')).toBeVisible();
+    await expect(page.getByRole('button', { name: '离开观战房间', exact: true })).toHaveCount(0);
     await expect(page.locator('[data-game-sailing]')).toHaveCount(0, { timeout: 20000 });
     const exit = page.getByRole('button', { name: '离开观战房间', exact: true });
     await expect(exit).toBeVisible();
     await expect(exit).toHaveCount(1);
+    await page.addInitScript(() => {
+      (window as any).exitDuringStartup = false;
+      const observe = () => {
+        if (document.querySelector('[data-startup]') && document.querySelector('[aria-label="离开观战房间"]')) (window as any).exitDuringStartup = true;
+        requestAnimationFrame(observe);
+      };
+      requestAnimationFrame(observe);
+    });
+    const watchedRoom = await host.evaluate(async () => (await import('/src/' + 'socketService.ts')).socketService.authoritativeRoom.roomId);
+    await page.goto('/');
+    await page.evaluate(async roomId => {
+      const service = (await import('/src/' + 'socketService.ts')).socketService;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      service.joinRoom(roomId, '体验玩家', true);
+    }, watchedRoom);
+    await expect(page.locator('[data-startup]')).toHaveCount(0, { timeout: 30000 });
+    await expect(page.locator('[data-game-sailing]')).toHaveCount(0, { timeout: 30000 });
+    await expect(exit).toBeVisible();
+    expect(await page.evaluate(() => (window as any).exitDuringStartup)).toBe(false);
     await expect(page.getByRole('button', { name: '立即退出观战', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '我的观战表情', exact: true })).toHaveCount(0);
     const assertExitOnTop = async () => {
@@ -208,6 +229,7 @@ test('server redacts spectator snapshots, enforces host hand permission and deni
     ready = event(spec, 'game_state_updated'); spec.emit('request_sync', 'privacy'); expect((await ready).players[0].devCards).toEqual([]);
     const rooms = await outsider.timeout(2000).emitWithAck('get_active_rooms', false); expect(rooms.find((r: any) => r.roomId === 'privacy').gameState).toBeUndefined();
     let leaked = false; outsider.on('game_state_updated', () => leaked = true); outsider.emit('request_sync', 'privacy'); await new Promise(r => setTimeout(r, 100)); expect(leaked).toBe(false);
+    ready = event(host, 'game_reset'); host.emit('reset_game', 'privacy', 'host'); await ready;
     ready = event(host, 'room_state'); host.emit('join_room', 'visible', 'host', 'Host'); await ready;
     ready = event(host, 'room_state'); host.emit('update_settings', 'visible', 'host', { spectatorHands: true }); await ready;
     ready = event(spec, 'room_state'); spec.emit('join_room', 'visible', 'spec', 'Observer', true); await ready;
