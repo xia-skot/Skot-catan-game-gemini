@@ -3,25 +3,36 @@ import { buildAccountGameHistory, buildMonthlyLeaderboard } from './leaderboard'
 import { DEFAULT_LEADERBOARD_TOP_COUNT, isLeaderboardTopCount, monthBounds, shanghaiMonth } from '../shared/leaderboard';
 
 export interface LeaderboardStore {
-  readRecords(): Promise<{ games: Record<string, any>[]; users: Record<string, any>[] }>;
+  readRecords(refresh?: boolean): Promise<{ games: Record<string, any>[]; users: Record<string, any>[] }>;
   readTopCount(): Promise<unknown>;
   writeTopCount(topCount: number): Promise<void>;
 }
 
 export function mongoLeaderboardStore(getCollections: () => { games: any; users: any; settings: any }): LeaderboardStore {
+  let cached: { value: Awaited<ReturnType<LeaderboardStore['readRecords']>>; until: number } | null = null;
+  let pending: ReturnType<LeaderboardStore['readRecords']> | null = null;
+  const copyRecords = (value: Awaited<ReturnType<LeaderboardStore['readRecords']>>) => ({ games: [...value.games], users: [...value.users] });
   function collections() {
     const value = getCollections();
     if (!value.games || !value.users || !value.settings) throw new Error('Leaderboard database unavailable');
     return value;
   }
   return {
-    async readRecords() {
+    async readRecords(refresh = false) {
+      if (!refresh && cached && cached.until > Date.now()) return copyRecords(cached.value);
+      if (pending) return copyRecords(await pending);
+      pending = (async () => {
       const { games, users } = collections();
       const [gameRecords, userRecords] = await Promise.all([
         games.find({}).project({ gameId: 1, identityVersion: 1, accountBindingVersion: 1, scoringVersion: 1, roomId: 1, players: 1, winnerId: 1, turnCount: 1, mapType: 1, completedAt: 1, phase: 1, durationMs: 1 }).toArray(),
         users.find({}).project({ _id: 1, username: 1, isGuest: 1, role: 1, createdAt: 1 }).toArray(),
       ]);
-      return { games: gameRecords, users: userRecords };
+      const value = { games: gameRecords, users: userRecords };
+      cached = { value, until: Date.now() + 5000 };
+      return value;
+      })();
+      try { return copyRecords(await pending); }
+      finally { pending = null; }
     },
     async readTopCount() {
       const setting = await collections().settings.findOne({ _id: 'monthly-leaderboard' });
@@ -38,7 +49,7 @@ export function registerLeaderboardRoutes(app: Express, authenticate: RequestHan
   requireAdmin: RequestHandler, store: LeaderboardStore, now = () => Date.now()) {
   app.get('/api/user/games', authenticate, async (req, res) => {
     try {
-      const { games, users } = await store.readRecords();
+      const { games, users } = await store.readRecords(req.query.refresh === '1');
       const userId = String((req as any).user.userId || '');
       const account = users.find(user => String(user._id) === userId);
       if (!account) return res.status(404).json({ error: '账号不存在' });
@@ -52,7 +63,7 @@ export function registerLeaderboardRoutes(app: Express, authenticate: RequestHan
   });
   app.get('/api/admin/user/:username/games', authenticate, requireAdmin, async (req, res) => {
     try {
-      const { games, users } = await store.readRecords();
+      const { games, users } = await store.readRecords(req.query.refresh === '1');
       const accounts = users.filter(user => user.isGuest === false && user.role !== 'guest' && (req.query.userId
         ? String(user._id) === req.query.userId
         : user.username?.trim().toLowerCase() === req.params.username.trim().toLowerCase()));
@@ -74,7 +85,7 @@ export function registerLeaderboardRoutes(app: Express, authenticate: RequestHan
     if (typeof month !== 'string') return res.status(400).json({ error: '月份格式应为 YYYY-MM' });
     try { monthBounds(month); } catch { return res.status(400).json({ error: '月份格式应为 YYYY-MM，年份不早于 2000' }); }
     try {
-      const [{ games, users }, count] = await Promise.all([store.readRecords(), topCount()]);
+      const [{ games, users }, count] = await Promise.all([store.readRecords(req.query.refresh === '1'), topCount()]);
       res.setHeader('Cache-Control', 'no-store');
       res.json(buildMonthlyLeaderboard(games, users, month, count, now(), String((req as any).user.userId || '')));
     } catch (error) {

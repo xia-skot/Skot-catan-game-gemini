@@ -9,12 +9,24 @@ interface Options {
 }
 
 export function registerAnalyticsRoutes(app: Express, authenticate: RequestHandler, admin: RequestHandler, options: Options) {
+  let cached: { records: Awaited<ReturnType<Options['readRecords']>>; expires: number } | null = null;
+  let pending: ReturnType<Options['readRecords']> | null = null;
+  async function records(refresh: boolean) {
+    if (!refresh && cached && cached.expires > Date.now()) return cached.records;
+    if (!pending) {
+      pending = options.readRecords().then(value => {
+        cached = { records: value, expires: Date.now() + 15000 };
+        return value;
+      }).finally(() => { pending = null; });
+    }
+    return pending;
+  }
   app.get('/api/admin/analytics', authenticate, admin, async (req, res) => {
     let query: ReturnType<typeof parseAnalyticsQuery>;
     try { query = parseAnalyticsQuery(req.query); }
     catch (error) { res.status(400).json({ error: (error as Error).message }); return; }
     try {
-      const { users, games } = await options.readRecords();
+      const { users, games } = await records(req.query.refresh === '1');
       res.setHeader('Cache-Control', 'no-store');
       res.json(buildAnalytics(users, games, query.period, query.time));
     } catch { res.status(503).json({ error: '无法读取统计数据，请稍后重试' }); }

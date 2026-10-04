@@ -1,5 +1,13 @@
 # Render 入口包
 
+## v37 桌面图标
+
+桌面图标、favicon、apple-touch-icon 改用保留的浅白底高清图片 `catan-icon-v18-512.png`，对外路径为 `/catan-home-v37-512.png`，避免复用透明图缓存。透明图片 v19 保留，游戏内资源不变。
+
+浏览器自动生成的系统启动屏可能复用 manifest 图标，无法保证与桌面图标分开指定；此处不承诺系统启动屏继续透明。旧桌面入口若未更新，移除快捷方式后重新添加，不要清除网站数据。
+
+从 v36 更新只需替换本目录 server.js，并确认 catan-icon-v18-512.png 与 catan-icon-v19-512.png 均存在。只重新部署固定入口，游戏站及 Worker 无需更新。
+
 此目录只部署入口，不包含游戏资源。默认入口为 `skot-game.onrender.com`，默认游戏站为 `skot-game01.onrender.com`。
 
 ## v25 游客身份共享与跨站邀请

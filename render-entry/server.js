@@ -2,8 +2,10 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const ICON_PATH = '/catan-icon-v19-512.png';
-const ICON = readFileSync(new URL(`.${ICON_PATH}`, import.meta.url));
+const ICON_PATH = '/catan-home-v37-512.png';
+const ICON = readFileSync(new URL('./catan-icon-v18-512.png', import.meta.url));
+const TRANSPARENT_ICON_PATH = '/catan-icon-v19-512.png';
+const TRANSPARENT_ICON = readFileSync(new URL(`.${TRANSPARENT_ICON_PATH}`, import.meta.url));
 
 const DEFAULT_ROUTING_API = 'https://skot.catan-game.workers.dev/api/route';
 const DEFAULT_FALLBACK = 'https://skot-game01.onrender.com';
@@ -166,10 +168,11 @@ export function createServer(options = {}) {
       return sendJson(response, 200, target);
     }
 
-    if (url.pathname === ICON_PATH) {
-      return sendText(response, 200, 'image/png', ICON, {
+    if (url.pathname === ICON_PATH || url.pathname === TRANSPARENT_ICON_PATH) {
+      const bytes = url.pathname === ICON_PATH ? ICON : TRANSPARENT_ICON;
+      return sendText(response, 200, 'image/png', bytes, {
         'Cache-Control': 'public, max-age=31536000, immutable',
-        'Content-Length': String(ICON.length),
+        'Content-Length': String(bytes.length),
       });
     }
 

@@ -111,8 +111,8 @@ test('launcher keeps the entry URL and embeds the selected game', async () => {
     assert.equal(manifest.scope, '/');
     assert.equal(manifest.icons.length, 1);
     assert.equal(manifest.icons[0].sizes, '512x512');
-    assert.equal(manifest.icons[0].src, '/catan-icon-v19-512.png');
-    assert.match(html, /rel="apple-touch-icon" sizes="512x512" href="\/catan-icon-v19-512.png"/);
+    assert.equal(manifest.icons[0].src, '/catan-home-v37-512.png');
+    assert.match(html, /rel="apple-touch-icon" sizes="512x512" href="\/catan-home-v37-512.png"/);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
@@ -123,15 +123,16 @@ test('high resolution entry icon is served locally even with game and routing se
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const base = `http://127.0.0.1:${server.address().port}`;
-    const response = await fetch(`${base}/catan-icon-v19-512.png`);
+    const response = await fetch(`${base}/catan-home-v37-512.png`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'image/png');
     const bytes = Buffer.from(await response.arrayBuffer());
-    assert.deepEqual(bytes, readFileSync(new URL('./catan-icon-v19-512.png', import.meta.url)));
+    assert.deepEqual(bytes, readFileSync(new URL('./catan-icon-v18-512.png', import.meta.url)));
+    assert.deepEqual(Buffer.from(await (await fetch(`${base}/catan-icon-v19-512.png`)).arrayBuffer()), readFileSync(new URL('./catan-icon-v19-512.png', import.meta.url)));
     assert.equal(bytes.subarray(1, 4).toString(), 'PNG');
     assert.equal(bytes.readUInt32BE(16), 512);
     assert.equal(bytes.readUInt32BE(20), 512);
-    const head = await fetch(`${base}/catan-icon-v19-512.png`, { method: 'HEAD' });
+    const head = await fetch(`${base}/catan-home-v37-512.png`, { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal((await head.arrayBuffer()).byteLength, 0);
     assert.equal(head.headers.get('content-length'), String(bytes.length));

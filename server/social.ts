@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import type { Server, Socket } from 'socket.io';
 import { EMOTES, GIFTS, freeSeats, groupOnline, type RoomInvitation } from '../shared/social';
 import { SocialStore } from './socialStore';
+import { conflictingRoom } from './roomOccupancy';
 
 export function createSocialService(io: Server, rooms: Map<string, any>, secret: string, store: SocialStore, origin: string) {
   const nodeId = randomUUID();
@@ -11,6 +12,8 @@ export function createSocialService(io: Server, rooms: Map<string, any>, secret:
   let busy = false;
   const waveLocks = new Set<string>();
   function statusFor(id: string) {
+    const occupied = conflictingRoom(rooms.values(), id, '');
+    if (occupied) return { status: occupied.gameState ? 'playing' : 'waiting', roomId: occupied.roomId };
     for (const room of rooms.values()) {
       if (room.players.some((p: any) => p.id === id && !p.disconnected)) return { status: room.gameState ? 'playing' : 'waiting', roomId: room.roomId };
       if (room.spectators?.some((p: any) => p.id === id)) return { status: 'spectating', roomId: room.roomId };
@@ -41,7 +44,7 @@ export function createSocialService(io: Server, rooms: Map<string, any>, secret:
       item.expiresAt > Date.now() && ['pending', 'accepted'].includes(item.status) && !room.players.some((p: any) => p.id === item.recipientId)).length;
     const remaining = Math.min(3 - outstanding, freeSeats(room) - outstanding, 10 - campaign.sent.size);
     if (remaining <= 0 || Date.now() - campaign.lastWave < 1500) return;
-    const online = groupOnline(await store.online()).filter(user => user.status === 'idle' && user.accountId !== campaign.hostId && !campaign.sent.has(user.accountId));
+    const online = groupOnline(await store.online()).filter(user => user.status === 'idle' && statusFor(user.accountId).status === 'idle' && user.accountId !== campaign.hostId && !campaign.sent.has(user.accountId));
     // Rotate candidates so frequent invitations don't always target the same names.
     const offset = online.length ? Math.floor(Math.random() * online.length) : 0;
     const candidates = [...online.slice(offset), ...online.slice(0, offset)];
@@ -83,6 +86,7 @@ export function createSocialService(io: Server, rooms: Map<string, any>, secret:
       for (const socket of io.sockets.sockets.values()) { socket.data.lastInvitation = null; await publish(socket); }
     },
     async validateInvitation(accountId: string, id: string, roomId: string) {
+      if (conflictingRoom(rooms.values(), accountId, roomId)) return false;
       const item = (await store.forUsers([accountId]))[0];
       return item?.id === id && item.roomId === roomId && item.origin === origin && item.status === 'accepted' && item.expiresAt > Date.now();
     },
